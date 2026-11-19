@@ -25,6 +25,28 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build with Gradle
+        run: ./gradlew build --no-daemon --stacktrace || true
+
+      - name: Debug - dump real ServerPlayer/CommandSourceStack method names
+        run: |
+          JAR=$(find ~/.gradle/caches -iname "*.jar" 2>/dev/null | while read -r f; do
+            if unzip -l "$f" 2>/dev/null | grep -q "net/minecraft/server/level/ServerPlayer.class"; then
+              echo "$f"; break
+            fi
+          done)
+          echo "Using jar: $JAR"
+          mkdir -p /tmp/dump
+          unzip -o -p "$JAR" net/minecraft/server/level/ServerPlayer.class > /tmp/dump/ServerPlayer.class
+          unzip -o -p "$JAR" net/minecraft/world/entity/Entity.class > /tmp/dump/Entity.class
+          unzip -o -p "$JAR" net/minecraft/commands/CommandSourceStack.class > /tmp/dump/CommandSourceStack.class
+          echo "===== ServerPlayer ====="
+          javap -p /tmp/dump/ServerPlayer.class | grep -i "level\|Level"
+          echo "===== Entity (level-related) ====="
+          javap -p /tmp/dump/Entity.class | grep -i "level\|Level\|direction\|Direction"
+          echo "===== CommandSourceStack ====="
+          javap -p /tmp/dump/CommandSourceStack.class
+
+      - name: Re-run real build (fail workflow if this fails)
         run: ./gradlew build --no-daemon --stacktrace
 
       - name: Upload built jar
