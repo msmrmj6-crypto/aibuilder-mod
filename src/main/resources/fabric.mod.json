@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "aibuilder",
+	"version": "${version}",
+	"name": "AI Builder",
+	"description": "Players describe what they want in plain language and an AI (OpenAI) plans a block layout that the mod builds in front of them, via the /aibuild command.",
+	"authors": [
+		"You"
+	],
+	"contact": {},
+	"license": "CC0-1.0",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.aibuilder.mod.AiBuilderMod"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.20.1",
+		"minecraft": "~1.21.11",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
