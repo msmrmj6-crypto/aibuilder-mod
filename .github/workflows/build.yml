@@ -11,11 +11,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 21
+      # Fabric Loom 1.19.x itself needs a JDK 25 runtime to execute, even
+      # though the mod's own compiled bytecode still targets Java 21
+      # (see build.gradle: JavaCompile release = 21), which is what
+      # Minecraft 1.21.11 / fabric.mod.json actually require at runtime.
+      - name: Set up JDK 25
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '21'
+          java-version: '25'
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew

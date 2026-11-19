@@ -22,7 +22,8 @@ fabricmc.net (نفس gradlew ونفس ملفات gradle)، وبس زدت علي�
 
 ## قبل لا تبني
 
-- JDK 21 (نفسه اللي ماين كرافت 1.21.x يحتاجه).
+- JDK 25 لتشغيل أداة البناء نفسها (Fabric Loom 1.19.x يحتاجه ليشتغل)، حتى إن
+  الكود الناتج يستهدف Java 21 فعلياً (نفسه اللي ماين كرافت 1.21.x يحتاجه عند التشغيل).
 - IntelliJ IDEA (الأفضل) أو أي IDE يدعم Gradle.
 - مفتاح OpenAI API شغّال وعليه رصيد/Billing مفعّل (من platform.openai.com).
 - اتصال إنترنت وقت أول بناء، عشان Gradle يحمّل Minecraft وFabric API وMojang
