@@ -9,7 +9,6 @@ import com.aibuilder.mod.PlayerKeyStore;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
@@ -63,8 +62,7 @@ public final class AiBuildCommand {
 
         MinecraftServer server = source.getServer();
         BlockPos origin = player.blockPosition();
-        Direction facingDirection = Direction.fromYRot(player.getYRot());
-        String facing = facingDirection.getSerializedName();
+        String facing = player.getDirection().getSerializedName();
 
         player.sendSystemMessage(Component.literal("[AI Builder] جاري تصميم الفكرة بالذكاء الاصطناعي..."), false);
 
@@ -93,7 +91,7 @@ public final class AiBuildCommand {
                             "[AI Builder] جاري البناء الآن (" + plan.blocks().size() + " بلوك)..."), false);
 
                     BuildScheduler.enqueue(new BuildScheduler.Job(
-                            player.serverLevel(),
+                            player.level(),
                             origin,
                             plan.blocks().iterator(),
                             () -> {
