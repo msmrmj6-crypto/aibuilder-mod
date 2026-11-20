@@ -1,6 +1,7 @@
 package com.aibuilder.mod;
 
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -15,6 +16,14 @@ import java.util.List;
  * Turns the raw text the AI replied with into a validated, bounded list of
  * block placements. Nothing here is executed in the world yet — this is
  * just parsing + sanity-checking.
+ *
+ * The AI can describe a build three ways, combined freely:
+ *  - "fills": a solid rectangular box of one block (floors, roof slabs).
+ *  - "hollowBoxes": only the outer shell of a box is solid, the inside stays
+ *    empty — this is how whole rooms/building bodies get their straight
+ *    walls without the AI having to enumerate every wall block itself.
+ *  - "blocks": individual blocks, applied last, for door/window openings
+ *    and small details.
  */
 public final class BuildPlanParser {
 
@@ -40,45 +49,120 @@ public final class BuildPlanParser {
             return new BuildPlan(result, skipped);
         }
 
-        if (!root.has("blocks") || !root.get("blocks").isJsonArray()) {
-            return new BuildPlan(result, skipped);
-        }
-
-        JsonArray arr = root.getAsJsonArray("blocks");
         int half = Math.max(1, maxDimension / 2);
 
-        for (int i = 0; i < arr.size() && result.size() < maxBlocks; i++) {
-            try {
-                JsonObject obj = arr.get(i).getAsJsonObject();
-                int x = obj.get("x").getAsInt();
-                int y = obj.get("y").getAsInt();
-                int z = obj.get("z").getAsInt();
-                String blockId = obj.get("block").getAsString();
-
-                // Keep every build inside a safe bounding box around the player.
-                if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
-                    continue;
+        if (root.has("fills") && root.get("fills").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("fills")) {
+                if (result.size() >= maxBlocks) break;
+                try {
+                    addBox(el.getAsJsonObject(), half, maxDimension, maxBlocks, result, skipped, false);
+                } catch (Exception e) {
+                    // Malformed entry from the model; skip it and keep going.
                 }
+            }
+        }
 
-                Identifier id = Identifier.tryParse(blockId.trim());
-                if (id == null) {
-                    skipped.add(blockId);
-                    continue;
+        if (root.has("hollowBoxes") && root.get("hollowBoxes").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("hollowBoxes")) {
+                if (result.size() >= maxBlocks) break;
+                try {
+                    addBox(el.getAsJsonObject(), half, maxDimension, maxBlocks, result, skipped, true);
+                } catch (Exception e) {
+                    // Malformed entry from the model; skip it and keep going.
                 }
+            }
+        }
 
-                Block block = BuiltInRegistries.BLOCK.getOptional(id).orElse(null);
-                if (block == null) {
-                    skipped.add(blockId);
-                    continue;
+        if (root.has("blocks") && root.get("blocks").isJsonArray()) {
+            JsonArray arr = root.getAsJsonArray("blocks");
+
+            for (int i = 0; i < arr.size() && result.size() < maxBlocks; i++) {
+                try {
+                    JsonObject obj = arr.get(i).getAsJsonObject();
+                    int x = obj.get("x").getAsInt();
+                    int y = obj.get("y").getAsInt();
+                    int z = obj.get("z").getAsInt();
+                    String blockId = obj.get("block").getAsString();
+
+                    // Keep every build inside a safe bounding box around the player.
+                    if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
+                        continue;
+                    }
+
+                    BlockState state = resolveBlock(blockId, skipped);
+                    if (state == null) {
+                        continue;
+                    }
+
+                    result.add(new PlacedBlock(x, y, z, state));
+                } catch (Exception e) {
+                    // Malformed entry from the model; skip it and keep going.
                 }
-
-                result.add(new PlacedBlock(x, y, z, block.defaultBlockState()));
-            } catch (Exception e) {
-                // Malformed entry from the model; skip it and keep going.
             }
         }
 
         return new BuildPlan(result, skipped);
+    }
+
+    /**
+     * Expands one "fills"/"hollowBoxes" entry into individual placed blocks,
+     * clamped to the safe bounding box and to the remaining block budget.
+     * When hollow is true, only the outer shell of the box is emitted (the
+     * fully-interior cells are left untouched, i.e. a hollow room shell).
+     */
+    private static void addBox(JsonObject obj, int half, int maxDimension, int maxBlocks,
+                                List<PlacedBlock> result, List<String> skipped, boolean hollow) {
+        int x1 = obj.get("x1").getAsInt();
+        int y1 = obj.get("y1").getAsInt();
+        int z1 = obj.get("z1").getAsInt();
+        int x2 = obj.get("x2").getAsInt();
+        int y2 = obj.get("y2").getAsInt();
+        int z2 = obj.get("z2").getAsInt();
+        String blockId = obj.get("block").getAsString();
+
+        int minX = Math.max(-half, Math.min(x1, x2));
+        int maxX = Math.min(half, Math.max(x1, x2));
+        int minY = Math.max(0, Math.min(y1, y2));
+        int maxY = Math.min(maxDimension, Math.max(y1, y2));
+        int minZ = Math.max(-half, Math.min(z1, z2));
+        int maxZ = Math.min(half, Math.max(z1, z2));
+
+        if (minX > maxX || minY > maxY || minZ > maxZ) {
+            return;
+        }
+
+        BlockState state = resolveBlock(blockId, skipped);
+        if (state == null) {
+            return;
+        }
+
+        for (int x = minX; x <= maxX && result.size() < maxBlocks; x++) {
+            for (int y = minY; y <= maxY && result.size() < maxBlocks; y++) {
+                for (int z = minZ; z <= maxZ && result.size() < maxBlocks; z++) {
+                    boolean interior = x != minX && x != maxX && y != minY && y != maxY && z != minZ && z != maxZ;
+                    if (hollow && interior) {
+                        continue;
+                    }
+                    result.add(new PlacedBlock(x, y, z, state));
+                }
+            }
+        }
+    }
+
+    private static BlockState resolveBlock(String blockId, List<String> skipped) {
+        Identifier id = Identifier.tryParse(blockId.trim());
+        if (id == null) {
+            skipped.add(blockId);
+            return null;
+        }
+
+        Block block = BuiltInRegistries.BLOCK.getOptional(id).orElse(null);
+        if (block == null) {
+            skipped.add(blockId);
+            return null;
+        }
+
+        return block.defaultBlockState();
     }
 
     /**
