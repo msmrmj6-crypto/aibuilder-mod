@@ -39,6 +39,22 @@ public final class OpenAIClient {
      */
     public static CompletableFuture<String> requestBuildPlan(String apiKey, String model, String description,
                                                                String facing, int maxDimension, int maxBlocks) {
+        try {
+            return doRequest(apiKey, model, description, facing, maxDimension, maxBlocks);
+        } catch (Exception e) {
+            // Building the request itself can throw synchronously (e.g. an API key
+            // or URL with an invalid/invisible character makes the HTTP header
+            // builder reject it). That must never crash the /aibuild command outright
+            // - turn it into a normal failed future so the player gets our own clear
+            // "[AI Builder] صار خطأ: ..." message instead of Minecraft's raw,
+            // unhelpful "An unexpected error occurred" and a permanently-stuck
+            // "busy" state.
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+
+    private static CompletableFuture<String> doRequest(String apiKey, String model, String description,
+                                                         String facing, int maxDimension, int maxBlocks) {
         int half = Math.max(1, maxDimension / 2);
 
         String systemPrompt = """

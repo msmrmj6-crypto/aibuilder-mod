@@ -38,7 +38,13 @@ public final class AiKeyCommand {
             return 0;
         }
 
-        key = key.trim();
+        // Mobile keyboards (especially with RTL/Arabic input) can silently slip
+        // invisible Unicode marks (zero-width spaces, LTR/RTL marks, a stray BOM,
+        // ...) into a pasted key. Those are invalid in an HTTP header value and
+        // would otherwise crash /aibuild with a raw, unhelpful error - strip any
+        // Unicode "format"/"control" character anywhere in the string, then trim
+        // ordinary whitespace from the ends.
+        key = key.replaceAll("[\\p{Cf}\\p{Cc}]", "").trim();
         if (key.isEmpty()) {
             source.sendFailure(Component.literal("اكتب مفتاحك بعد الأمر، مثال: /aikey sk-xxxxxxxx"));
             return 0;
