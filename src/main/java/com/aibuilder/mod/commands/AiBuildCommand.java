@@ -12,8 +12,14 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.Container;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.state.BlockState;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -80,7 +86,7 @@ public final class AiBuildCommand {
                     BuildPlanParser.BuildPlan plan =
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
-                    if (plan.blocks().isEmpty()) {
+                    if (plan.blocks().isEmpty() && plan.chests().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت بلوكات صالحة من رد الذكاء الاصطناعي. جرّب تصف الفكرة بشكل أوضح."), false);
@@ -90,18 +96,58 @@ public final class AiBuildCommand {
                     player.sendSystemMessage(Component.literal(
                             "[AI Builder] جاري البناء الآن (" + plan.blocks().size() + " بلوك)..."), false);
 
-                    BuildScheduler.enqueue(new BuildScheduler.Job(
-                            player.level(),
-                            origin,
-                            plan.blocks().iterator(),
-                            () -> {
-                                busyPlayers.remove(playerId);
-                                if (player.isAlive()) {
-                                    player.sendSystemMessage(Component.literal("[AI Builder] خلص البناء! ✅"), false);
-                                }
-                            }));
+                    Runnable onComplete = () -> {
+                        placeChests(player.level(), origin, plan.chests());
+                        busyPlayers.remove(playerId);
+                        if (player.isAlive()) {
+                            player.sendSystemMessage(Component.literal("[AI Builder] خلص البناء! ✅"), false);
+                        }
+                    };
+
+                    if (plan.blocks().isEmpty()) {
+                        // Nothing for the tick scheduler to do (e.g. "put a sword in a
+                        // chest here"); place the chest(s) right away.
+                        onComplete.run();
+                    } else {
+                        BuildScheduler.enqueue(new BuildScheduler.Job(
+                                player.level(),
+                                origin,
+                                plan.blocks().iterator(),
+                                onComplete));
+                    }
                 }));
 
         return 1;
+    }
+
+    /**
+     * Places every chest the AI asked for and fills its inventory with the
+     * items it specified, one stack per slot in the order given.
+     */
+    private static void placeChests(ServerLevel level, BlockPos origin, List<BuildPlanParser.ChestPlacement> chests) {
+        if (chests.isEmpty()) {
+            return;
+        }
+
+        BlockState chestState = BuildPlanParser.resolveBlock("minecraft:chest", new ArrayList<>());
+        if (chestState == null) {
+            return;
+        }
+
+        for (BuildPlanParser.ChestPlacement chest : chests) {
+            BlockPos pos = origin.offset(chest.x(), chest.y(), chest.z());
+            level.setBlock(pos, chestState, 3);
+
+            if (level.getBlockEntity(pos) instanceof Container container) {
+                int slot = 0;
+                for (BuildPlanParser.ChestItem item : chest.items()) {
+                    if (slot >= container.getContainerSize()) {
+                        break;
+                    }
+                    container.setItem(slot, new ItemStack(item.item(), item.count()));
+                    slot++;
+                }
+            }
+        }
     }
 }

@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -17,15 +18,19 @@ import java.util.List;
  * block placements. Nothing here is executed in the world yet — this is
  * just parsing + sanity-checking.
  *
- * The AI can describe a build three ways, combined freely:
+ * The AI can describe a build these ways, combined freely:
  *  - "fills": a solid rectangular box of one block (floors, roof slabs).
  *  - "hollowBoxes": only the outer shell of a box is solid, the inside stays
  *    empty — this is how whole rooms/building bodies get their straight
  *    walls without the AI having to enumerate every wall block itself.
  *  - "blocks": individual blocks, applied last, for door/window openings
  *    and small details.
+ *  - "chests": places a chest and fills it with specific items.
  */
 public final class BuildPlanParser {
+
+    /** A chest only has this many inventory slots. */
+    private static final int CHEST_SLOTS = 27;
 
     private BuildPlanParser() {
     }
@@ -34,19 +39,31 @@ public final class BuildPlanParser {
     public record PlacedBlock(int x, int y, int z, BlockState state) {
     }
 
-    /** blocks = what we will place. skipped = block ids the AI gave that we could not resolve. */
-    public record BuildPlan(List<PlacedBlock> blocks, List<String> skipped) {
+    /** One item stack the AI wants inside a chest. */
+    public record ChestItem(Item item, int count) {
+    }
+
+    /** A chest to place, in coordinates relative to the player, with its contents. */
+    public record ChestPlacement(int x, int y, int z, List<ChestItem> items) {
+    }
+
+    /**
+     * blocks = what we will place. chests = chests to place and fill.
+     * skipped = block/item ids the AI gave that we could not resolve.
+     */
+    public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests, List<String> skipped) {
     }
 
     public static BuildPlan parse(String rawJson, int maxDimension, int maxBlocks) {
         List<PlacedBlock> result = new ArrayList<>();
+        List<ChestPlacement> chests = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
         JsonObject root;
         try {
             root = JsonParser.parseString(extractJson(rawJson)).getAsJsonObject();
         } catch (Exception e) {
-            return new BuildPlan(result, skipped);
+            return new BuildPlan(result, chests, skipped);
         }
 
         int half = Math.max(1, maxDimension / 2);
@@ -101,7 +118,48 @@ public final class BuildPlanParser {
             }
         }
 
-        return new BuildPlan(result, skipped);
+        if (root.has("chests") && root.get("chests").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("chests")) {
+                try {
+                    JsonObject obj = el.getAsJsonObject();
+                    int x = obj.get("x").getAsInt();
+                    int y = obj.get("y").getAsInt();
+                    int z = obj.get("z").getAsInt();
+
+                    if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
+                        continue;
+                    }
+
+                    List<ChestItem> items = new ArrayList<>();
+                    if (obj.has("items") && obj.get("items").isJsonArray()) {
+                        for (JsonElement itemEl : obj.getAsJsonArray("items")) {
+                            if (items.size() >= CHEST_SLOTS) break;
+                            try {
+                                JsonObject itemObj = itemEl.getAsJsonObject();
+                                String itemId = itemObj.get("item").getAsString();
+                                int count = itemObj.has("count") ? itemObj.get("count").getAsInt() : 1;
+                                count = Math.max(1, Math.min(count, 64));
+
+                                Item item = resolveItem(itemId, skipped);
+                                if (item == null) {
+                                    continue;
+                                }
+
+                                items.add(new ChestItem(item, count));
+                            } catch (Exception e) {
+                                // Malformed item entry; skip it and keep going.
+                            }
+                        }
+                    }
+
+                    chests.add(new ChestPlacement(x, y, z, items));
+                } catch (Exception e) {
+                    // Malformed chest entry; skip it and keep going.
+                }
+            }
+        }
+
+        return new BuildPlan(result, chests, skipped);
     }
 
     /**
@@ -149,7 +207,8 @@ public final class BuildPlanParser {
         }
     }
 
-    private static BlockState resolveBlock(String blockId, List<String> skipped) {
+    /** Public so AiBuildCommand can resolve the "minecraft:chest" block the same way. */
+    public static BlockState resolveBlock(String blockId, List<String> skipped) {
         Identifier id = Identifier.tryParse(blockId.trim());
         if (id == null) {
             skipped.add(blockId);
@@ -163,6 +222,22 @@ public final class BuildPlanParser {
         }
 
         return block.defaultBlockState();
+    }
+
+    private static Item resolveItem(String itemId, List<String> skipped) {
+        Identifier id = Identifier.tryParse(itemId.trim());
+        if (id == null) {
+            skipped.add(itemId);
+            return null;
+        }
+
+        Item item = BuiltInRegistries.ITEM.getOptional(id).orElse(null);
+        if (item == null) {
+            skipped.add(itemId);
+            return null;
+        }
+
+        return item;
     }
 
     /**
