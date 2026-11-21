@@ -73,16 +73,18 @@ public final class OpenAIClient {
                   "blocks": [{"x":int,"y":int,"z":int,"block":"minecraft:<id>"}],
                   "chests": [{"x":int,"y":int,"z":int,"items":[{"item":"minecraft:<id>","count":int}]}]
                 }
-                - "fills": a solid rectangular box of one block type (both corners included). Use for floors, roof slabs, and roof layers.
+                - "fills": a solid rectangular box of one block type (both corners included). Use for floors, roof slabs, roof layers, and (with "facing") a whole row of oriented stairs for a real sloped roof.
                 - "hollowBoxes": a rectangular box whose outer shell only (floor + ceiling + all 4 walls) is solid; the interior stays empty. This is the fastest and most reliable way to build a straight-walled room or building body - always prefer it over listing wall blocks one by one.
                 - "blocks": single blocks, applied last (after fills/hollowBoxes), for door and window openings (set to "minecraft:air", or "minecraft:glass_pane" for a window, "minecraft:oak_door" for a door) and small details like torches. Never use "blocks" to enumerate an entire wall or floor.
                 - "chests": places a "minecraft:chest" at that position and fills it with the given items, one per slot, in order (a chest has 27 slots - list at most 27). Use this whenever the request asks for a chest/container holding something, or for a specific item (a sword, a door, food, tools, anything) to be stored/placed somewhere rather than built as a block in the structure. "count" is optional (defaults to 1, max 64). Item ids use the same "minecraft:" namespace as blocks, but are the ITEM form (e.g. "minecraft:diamond_sword", "minecraft:oak_door").
+
+                ORIENTATION: any "fills", "blocks", or "chests" entry may also set "facing": "north"|"south"|"east"|"west". It is applied to that block's horizontal orientation when it has one (stairs, doors, trapdoors, furnaces, chests, fence gates, ...) and ignored otherwise. For stairs, "facing" is the side the tall/flat vertical face points to - the sloped top faces the opposite way, so the open/low side of the slope points opposite to "facing". Use this to build a REAL sloped roof: along each roof edge, one "fills" row/box of e.g. "minecraft:oak_stairs" with "facing" pointing away from the ridge (so the slope climbs toward the ridge) looks far more realistic than stacking flat shrinking layers. Use "facing" on a door so it sits flush in its opening, and on a chest so it opens toward the room.
 
                 TYPICAL SMALL HOUSE RECIPE (adapt size, material, and style to what was asked):
                 1. One "hollowBoxes" entry for the whole body (floor to wall-top) - this alone gives you a floor, ceiling, and 4 straight walls.
                 2. "blocks" entries cutting a door opening (2 blocks tall) in the wall nearest the player.
                 3. A few "blocks" entries cutting window openings in the other walls.
-                4. One or more "fills" entries just above the walls for the roof: either one flat slab the size of the footprint, or several layers, each one block smaller on every side and one level higher, for a simple pyramid/stepped roof.
+                4. A roof on top of the walls: prefer real sloped stairs (see ORIENTATION above) - one "fills" row per roof edge using "<wood>_stairs" with the right "facing", plus a flat ridge cap row along the very top. A flat slab, or a few shrinking layers for a simple pyramid, are acceptable simpler alternatives.
                 5. If asked for a chest/item inside, add one "chests" entry inside the house with the requested items.
                 Keep box sizes reasonable for what was asked - fills and hollowBoxes are expanded into individual blocks automatically on our side, so a sensible plan stays well under %d placed blocks without you needing to count them.
 

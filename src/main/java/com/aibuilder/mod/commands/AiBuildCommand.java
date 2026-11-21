@@ -129,13 +129,14 @@ public final class AiBuildCommand {
             return;
         }
 
-        BlockState chestState = BuildPlanParser.resolveBlock("minecraft:chest", new ArrayList<>());
-        if (chestState == null) {
+        BlockState baseChestState = BuildPlanParser.resolveBlock("minecraft:chest", new ArrayList<>());
+        if (baseChestState == null) {
             return;
         }
 
         for (BuildPlanParser.ChestPlacement chest : chests) {
             BlockPos pos = origin.offset(chest.x(), chest.y(), chest.z());
+            BlockState chestState = BuildPlanParser.withFacing(baseChestState, chest.facing());
             level.setBlock(pos, chestState, 3);
 
             if (level.getBlockEntity(pos) instanceof Container container) {

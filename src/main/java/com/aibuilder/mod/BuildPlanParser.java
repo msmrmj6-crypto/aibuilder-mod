@@ -4,14 +4,17 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Turns the raw text the AI replied with into a validated, bounded list of
@@ -19,13 +22,20 @@ import java.util.List;
  * just parsing + sanity-checking.
  *
  * The AI can describe a build these ways, combined freely:
- *  - "fills": a solid rectangular box of one block (floors, roof slabs).
+ *  - "fills": a solid rectangular box of one block (floors, roof slabs,
+ *    and - with "facing" set - a whole row of oriented stairs for a real
+ *    sloped roof in one entry).
  *  - "hollowBoxes": only the outer shell of a box is solid, the inside stays
  *    empty — this is how whole rooms/building bodies get their straight
  *    walls without the AI having to enumerate every wall block itself.
  *  - "blocks": individual blocks, applied last, for door/window openings
  *    and small details.
  *  - "chests": places a chest and fills it with specific items.
+ *
+ * Any "fills"/"blocks"/"chests" entry may also set an optional "facing"
+ * ("north"/"south"/"east"/"west"); it is applied to the block's FACING
+ * property when that block has one (stairs, doors, trapdoors, furnaces,
+ * chests, ...), and silently ignored for blocks that don't.
  */
 public final class BuildPlanParser {
 
@@ -44,7 +54,7 @@ public final class BuildPlanParser {
     }
 
     /** A chest to place, in coordinates relative to the player, with its contents. */
-    public record ChestPlacement(int x, int y, int z, List<ChestItem> items) {
+    public record ChestPlacement(int x, int y, int z, Direction facing, List<ChestItem> items) {
     }
 
     /**
@@ -110,6 +120,7 @@ public final class BuildPlanParser {
                     if (state == null) {
                         continue;
                     }
+                    state = withFacing(state, parseDirection(getString(obj, "facing")));
 
                     result.add(new PlacedBlock(x, y, z, state));
                 } catch (Exception e) {
@@ -129,6 +140,8 @@ public final class BuildPlanParser {
                     if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
                         continue;
                     }
+
+                    Direction facing = parseDirection(getString(obj, "facing"));
 
                     List<ChestItem> items = new ArrayList<>();
                     if (obj.has("items") && obj.get("items").isJsonArray()) {
@@ -152,7 +165,7 @@ public final class BuildPlanParser {
                         }
                     }
 
-                    chests.add(new ChestPlacement(x, y, z, items));
+                    chests.add(new ChestPlacement(x, y, z, facing, items));
                 } catch (Exception e) {
                     // Malformed chest entry; skip it and keep going.
                 }
@@ -167,6 +180,8 @@ public final class BuildPlanParser {
      * clamped to the safe bounding box and to the remaining block budget.
      * When hollow is true, only the outer shell of the box is emitted (the
      * fully-interior cells are left untouched, i.e. a hollow room shell).
+     * An optional "facing" on the entry is applied to every block in it -
+     * useful for a whole row of stairs making up one slope of a roof.
      */
     private static void addBox(JsonObject obj, int half, int maxDimension, int maxBlocks,
                                 List<PlacedBlock> result, List<String> skipped, boolean hollow) {
@@ -193,6 +208,7 @@ public final class BuildPlanParser {
         if (state == null) {
             return;
         }
+        state = withFacing(state, parseDirection(getString(obj, "facing")));
 
         for (int x = minX; x <= maxX && result.size() < maxBlocks; x++) {
             for (int y = minY; y <= maxY && result.size() < maxBlocks; y++) {
@@ -222,6 +238,36 @@ public final class BuildPlanParser {
         }
 
         return block.defaultBlockState();
+    }
+
+    /**
+     * Sets the block's horizontal FACING property (shared by stairs, doors,
+     * trapdoors, furnaces, chests, fence gates, ...) when it has one and a
+     * direction was given; returns the state unchanged otherwise. Public so
+     * AiBuildCommand can orient a chest the same way.
+     */
+    public static BlockState withFacing(BlockState state, Direction facing) {
+        if (facing != null && state.hasProperty(HorizontalDirectionalBlock.FACING)) {
+            return state.setValue(HorizontalDirectionalBlock.FACING, facing);
+        }
+        return state;
+    }
+
+    private static Direction parseDirection(String s) {
+        if (s == null) {
+            return null;
+        }
+        return switch (s.trim().toLowerCase(Locale.ROOT)) {
+            case "north" -> Direction.NORTH;
+            case "south" -> Direction.SOUTH;
+            case "east" -> Direction.EAST;
+            case "west" -> Direction.WEST;
+            default -> null;
+        };
+    }
+
+    private static String getString(JsonObject obj, String field) {
+        return obj.has(field) && !obj.get(field).isJsonNull() ? obj.get(field).getAsString() : null;
     }
 
     private static Item resolveItem(String itemId, List<String> skipped) {
