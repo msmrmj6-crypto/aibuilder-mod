@@ -28,6 +28,8 @@ public final class AiProviderCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("aiprovider")
+                // Operators only, same as /aibuild and /aikey.
+                .requires(source -> source.hasPermission(2))
                 .then(literal("groq").executes(ctx -> useGroq(ctx.getSource())))
                 .then(literal("openai").executes(ctx -> useOpenAi(ctx.getSource())))
                 .then(literal("status").executes(ctx -> status(ctx.getSource()))));

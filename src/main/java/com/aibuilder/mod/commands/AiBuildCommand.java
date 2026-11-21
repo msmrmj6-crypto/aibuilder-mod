@@ -16,6 +16,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.entity.CommandBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
@@ -43,6 +44,8 @@ public final class AiBuildCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("aibuild")
+                // Operators only: regular players never see this command exist.
+                .requires(source -> source.hasPermission(2))
                 .then(argument("description", StringArgumentType.greedyString())
                         .executes(ctx -> run(ctx.getSource(), getString(ctx, "description")))));
     }
@@ -86,7 +89,7 @@ public final class AiBuildCommand {
                     BuildPlanParser.BuildPlan plan =
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
-                    if (plan.blocks().isEmpty() && plan.chests().isEmpty()) {
+                    if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت بلوكات صالحة من رد الذكاء الاصطناعي. جرّب تصف الفكرة بشكل أوضح."), false);
@@ -98,6 +101,7 @@ public final class AiBuildCommand {
 
                     Runnable onComplete = () -> {
                         placeChests(player.level(), origin, plan.chests());
+                        placeCommandBlocks(player.level(), origin, plan.commandBlocks());
                         busyPlayers.remove(playerId);
                         if (player.isAlive()) {
                             player.sendSystemMessage(Component.literal("[AI Builder] خلص البناء! ✅"), false);
@@ -148,6 +152,36 @@ public final class AiBuildCommand {
                     container.setItem(slot, new ItemStack(item.item(), item.count()));
                     slot++;
                 }
+            }
+        }
+    }
+
+    /**
+     * Places every (impulse) command block the AI asked for and stores its
+     * command in it - e.g. a button wired to a command block that gives the
+     * player a kit. These only ever run for whoever is allowed to use
+     * /aibuild in the first place (operators), same as typing the command
+     * themselves would.
+     */
+    private static void placeCommandBlocks(ServerLevel level, BlockPos origin,
+                                            List<BuildPlanParser.CommandBlockPlacement> commandBlocks) {
+        if (commandBlocks.isEmpty()) {
+            return;
+        }
+
+        BlockState baseState = BuildPlanParser.resolveBlock("minecraft:command_block", new ArrayList<>());
+        if (baseState == null) {
+            return;
+        }
+
+        for (BuildPlanParser.CommandBlockPlacement cmd : commandBlocks) {
+            BlockPos pos = origin.offset(cmd.x(), cmd.y(), cmd.z());
+            BlockState state = BuildPlanParser.withFacing(baseState, cmd.facing());
+            level.setBlock(pos, state, 3);
+
+            if (level.getBlockEntity(pos) instanceof CommandBlockEntity commandBlockEntity) {
+                commandBlockEntity.getCommandBlock().setCommand(cmd.command());
+                commandBlockEntity.setChanged();
             }
         }
     }

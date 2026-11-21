@@ -28,11 +28,15 @@ public class AiBuilderMod implements ModInitializer {
             AiProviderCommand.register(dispatcher);
         });
 
-        // As soon as a player joins, if they have no key saved yet, ask for one.
+        // As soon as a player joins, if they have no key saved yet, ask for one -
+        // but only operators ever see this (and only operators can use the
+        // /aibuild, /aikey, /aiprovider commands at all; see the .requires(...)
+        // on each of them). Regular players never even see these commands exist.
         ServerPlayConnectionEvents.JOIN.register((listener, sender, server) -> {
             ServerPlayer player = listener.player;
             server.execute(() -> {
-                if (!PlayerKeyStore.hasKey(player.getUUID())) {
+                boolean isOperator = player.createCommandSourceStack().hasPermission(2);
+                if (isOperator && !PlayerKeyStore.hasKey(player.getUUID())) {
                     player.sendSystemMessage(Component.literal(
                             "[AI Builder] مرحباً! لتفعيل البناء بالذكاء "
                                     + "الاصطناعي، ضع مفتاح "

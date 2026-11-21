@@ -25,6 +25,10 @@ public final class AiKeyCommand {
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("aikey")
+                // Operators only: regular players never see this command exist
+                // (it's left out of their synced command tree) and can't run it
+                // even if they somehow typed it out by hand.
+                .requires(source -> source.hasPermission(2))
                 .then(literal("clear").executes(ctx -> clear(ctx.getSource())))
                 .then(literal("status").executes(ctx -> status(ctx.getSource())))
                 .then(argument("key", StringArgumentType.greedyString())

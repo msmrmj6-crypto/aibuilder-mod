@@ -31,8 +31,11 @@ import java.util.Locale;
  *  - "blocks": individual blocks, applied last, for door/window openings
  *    and small details.
  *  - "chests": places a chest and fills it with specific items.
+ *  - "commandBlocks": places an (impulse) command block with a stored
+ *    command, e.g. for a button that gives the player a kit.
  *
- * Any "fills"/"blocks"/"chests" entry may also set an optional "facing"
+ * Any "fills"/"blocks"/"chests"/"commandBlocks" entry may also set an
+ * optional "facing"
  * ("north"/"south"/"east"/"west"); it is applied to the block's FACING
  * property when that block has one (stairs, doors, trapdoors, furnaces,
  * chests, ...), and silently ignored for blocks that don't.
@@ -57,23 +60,30 @@ public final class BuildPlanParser {
     public record ChestPlacement(int x, int y, int z, Direction facing, List<ChestItem> items) {
     }
 
+    /** A command block to place, in coordinates relative to the player, with its stored command. */
+    public record CommandBlockPlacement(int x, int y, int z, Direction facing, String command) {
+    }
+
     /**
      * blocks = what we will place. chests = chests to place and fill.
+     * commandBlocks = command blocks to place with their stored command.
      * skipped = block/item ids the AI gave that we could not resolve.
      */
-    public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests, List<String> skipped) {
+    public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests,
+                             List<CommandBlockPlacement> commandBlocks, List<String> skipped) {
     }
 
     public static BuildPlan parse(String rawJson, int maxDimension, int maxBlocks) {
         List<PlacedBlock> result = new ArrayList<>();
         List<ChestPlacement> chests = new ArrayList<>();
+        List<CommandBlockPlacement> commandBlocks = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
         JsonObject root;
         try {
             root = JsonParser.parseString(extractJson(rawJson)).getAsJsonObject();
         } catch (Exception e) {
-            return new BuildPlan(result, chests, skipped);
+            return new BuildPlan(result, chests, commandBlocks, skipped);
         }
 
         int half = Math.max(1, maxDimension / 2);
@@ -172,7 +182,35 @@ public final class BuildPlanParser {
             }
         }
 
-        return new BuildPlan(result, chests, skipped);
+        if (root.has("commandBlocks") && root.get("commandBlocks").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("commandBlocks")) {
+                try {
+                    JsonObject obj = el.getAsJsonObject();
+                    int x = obj.get("x").getAsInt();
+                    int y = obj.get("y").getAsInt();
+                    int z = obj.get("z").getAsInt();
+
+                    if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
+                        continue;
+                    }
+
+                    String command = obj.has("command") ? obj.get("command").getAsString().trim() : "";
+                    if (command.startsWith("/")) {
+                        command = command.substring(1);
+                    }
+                    if (command.isEmpty()) {
+                        continue;
+                    }
+
+                    Direction facing = parseDirection(getString(obj, "facing"));
+                    commandBlocks.add(new CommandBlockPlacement(x, y, z, facing, command));
+                } catch (Exception e) {
+                    // Malformed command block entry; skip it and keep going.
+                }
+            }
+        }
+
+        return new BuildPlan(result, chests, commandBlocks, skipped);
     }
 
     /**
