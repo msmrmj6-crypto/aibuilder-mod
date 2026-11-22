@@ -26,6 +26,27 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Temporary: ground-truth the real API for CommandBlockEntity / its
+      # inner command-holder object, specifically how to toggle "Always
+      # Active" (auto) mode, so a multi-item kit can be built as a real
+      # chain of command blocks instead of one overloaded command string.
+      - name: Debug - dump CommandBlockEntity API
+        run: |
+          ./gradlew compileJava --no-daemon --stacktrace || true
+          JAR=$(find ~/.gradle/caches -iname "*.jar" | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/level/block/entity/CommandBlockEntity.class" && echo {}' | head -1)
+          echo "Found jar: $JAR"
+          mkdir -p /tmp/extracted
+          cd /tmp/extracted
+          unzip -o "$JAR" "net/minecraft/world/level/block/entity/CommandBlockEntity.class"
+          unzip -o "$JAR" "net/minecraft/world/level/BaseCommandBlock.class"
+          unzip -o "$JAR" "net/minecraft/world/level/block/CommandBlock.class"
+          echo "===== CommandBlockEntity ====="
+          javap -p net/minecraft/world/level/block/entity/CommandBlockEntity.class
+          echo "===== BaseCommandBlock ====="
+          javap -p net/minecraft/world/level/BaseCommandBlock.class
+          echo "===== CommandBlock (the Block itself - state properties) ====="
+          javap -p net/minecraft/world/level/block/CommandBlock.class
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 
