@@ -20,12 +20,24 @@ public final class ModConfig {
     private static Path configDir;
     private static Path configFile;
 
+    // Bumped whenever the shipped defaults below change, so load() can tell
+    // a server that is still on an older release's defaults (and upgrade it -
+    // see the migration in load()) apart from one where an admin deliberately
+    // chose a different number.
+    private static final int CURRENT_CONFIG_VERSION = 2;
+
+    // The defaults every earlier release of this mod shipped with (and saved
+    // to disk on first run) — used only to recognize "never customized" below.
+    private static final int LEGACY_MAX_BUILD_DIMENSION = 24;
+    private static final int LEGACY_MAX_BLOCKS_PER_BUILD = 3000;
+    private static final int LEGACY_BLOCKS_PER_TICK = 150;
+
     // Defaults. Overwritten by load() if a settings.json already exists.
     public static String model = "gpt-4o-mini";
     public static String apiBaseUrl = "https://api.openai.com/v1/chat/completions";
-    public static int maxBuildDimension = 24;   // max width/depth/height of a build, in blocks
-    public static int maxBlocksPerBuild = 3000;  // hard safety cap on blocks per /aibuild call
-    public static int blocksPerTick = 150;       // how many blocks get placed per server tick
+    public static int maxBuildDimension = 40;    // max width/depth/height of a build, in blocks
+    public static int maxBlocksPerBuild = 8000;  // hard safety cap on blocks per /aibuild call
+    public static int blocksPerTick = 300;       // how many blocks get placed per server tick
 
     private ModConfig() {
     }
@@ -37,6 +49,7 @@ public final class ModConfig {
         int maxBuildDimension;
         int maxBlocksPerBuild;
         int blocksPerTick;
+        int configVersion;
     }
 
     public static void load() {
@@ -53,6 +66,25 @@ public final class ModConfig {
                     if (data.maxBuildDimension > 0) maxBuildDimension = data.maxBuildDimension;
                     if (data.maxBlocksPerBuild > 0) maxBlocksPerBuild = data.maxBlocksPerBuild;
                     if (data.blocksPerTick > 0) blocksPerTick = data.blocksPerTick;
+
+                    // One-time migration: this mod's players generally have no way
+                    // to edit settings.json by hand, so a value still sitting at
+                    // exactly what an older release both defaulted to AND saved on
+                    // first run almost certainly means "never customized" rather
+                    // than "deliberately chosen" — bump just those untouched
+                    // values up to the new, more capable defaults.
+                    if (data.configVersion < CURRENT_CONFIG_VERSION) {
+                        if (maxBuildDimension == LEGACY_MAX_BUILD_DIMENSION) {
+                            maxBuildDimension = 40;
+                        }
+                        if (maxBlocksPerBuild == LEGACY_MAX_BLOCKS_PER_BUILD) {
+                            maxBlocksPerBuild = 8000;
+                        }
+                        if (blocksPerTick == LEGACY_BLOCKS_PER_TICK) {
+                            blocksPerTick = 300;
+                        }
+                        save();
+                    }
                 }
             } else {
                 save();
@@ -71,6 +103,7 @@ public final class ModConfig {
             data.maxBuildDimension = maxBuildDimension;
             data.maxBlocksPerBuild = maxBlocksPerBuild;
             data.blocksPerTick = blocksPerTick;
+            data.configVersion = CURRENT_CONFIG_VERSION;
             Files.writeString(configFile, GSON.toJson(data), StandardCharsets.UTF_8);
         } catch (IOException e) {
             AiBuilderMod.LOGGER.error("Failed to save settings.json", e);
