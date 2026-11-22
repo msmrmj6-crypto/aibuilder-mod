@@ -24,27 +24,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # Temporary: resolve dependencies/remap Minecraft first (without compiling
-      # our own source, which currently fails) so we can inspect the REAL
-      # compiled CommandSourceStack class for 1.21.11's Mojang mappings and find
-      # the actual permission-check method name, instead of guessing again.
-      - name: Debug - dump CommandSourceStack API
-        run: |
-          ./gradlew compileJava --no-daemon --stacktrace || true
-          JAR=$(find ~/.gradle/caches -iname "*.jar" | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/commands/CommandSourceStack.class" && echo {}' | head -1)
-          echo "Found jar: $JAR"
-          mkdir -p /tmp/extracted
-          cd /tmp/extracted
-          unzip -o "$JAR" "net/minecraft/server/permissions/PermissionSet.class"
-          unzip -o "$JAR" "net/minecraft/commands/Commands.class"
-          unzip -o "$JAR" "net/minecraft/server/commands/GameModeCommand.class"
-          echo "===== PermissionSet ====="
-          javap -p net/minecraft/server/permissions/PermissionSet.class
-          echo "===== Commands (looking for level/permission constants) ====="
-          javap -p net/minecraft/commands/Commands.class
-          echo "===== GameModeCommand bytecode (how vanilla gates a level-2 command) ====="
-          javap -p -c net/minecraft/server/commands/GameModeCommand.class
-
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 

@@ -6,6 +6,7 @@ import com.aibuilder.mod.commands.AiProviderCommand;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 import org.slf4j.Logger;
@@ -35,7 +36,8 @@ public class AiBuilderMod implements ModInitializer {
         ServerPlayConnectionEvents.JOIN.register((listener, sender, server) -> {
             ServerPlayer player = listener.player;
             server.execute(() -> {
-                boolean isOperator = player.createCommandSourceStack().hasPermission(2);
+                boolean isOperator = Commands.hasPermission(Commands.LEVEL_GAMEMASTERS)
+                        .test(player.createCommandSourceStack());
                 if (isOperator && !PlayerKeyStore.hasKey(player.getUUID())) {
                     player.sendSystemMessage(Component.literal(
                             "[AI Builder] مرحباً! لتفعيل البناء بالذكاء "

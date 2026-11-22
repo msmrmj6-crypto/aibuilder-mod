@@ -4,6 +4,7 @@ import com.aibuilder.mod.PlayerKeyStore;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
 
@@ -28,7 +29,7 @@ public final class AiKeyCommand {
                 // Operators only: regular players never see this command exist
                 // (it's left out of their synced command tree) and can't run it
                 // even if they somehow typed it out by hand.
-                .requires(source -> source.hasPermission(2))
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                 .then(literal("clear").executes(ctx -> clear(ctx.getSource())))
                 .then(literal("status").executes(ctx -> status(ctx.getSource())))
                 .then(argument("key", StringArgumentType.greedyString())

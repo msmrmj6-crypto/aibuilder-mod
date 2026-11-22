@@ -3,6 +3,7 @@ package com.aibuilder.mod.commands;
 import com.aibuilder.mod.ModConfig;
 import com.mojang.brigadier.CommandDispatcher;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 
 import static net.minecraft.commands.Commands.literal;
@@ -29,7 +30,7 @@ public final class AiProviderCommand {
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(literal("aiprovider")
                 // Operators only, same as /aibuild and /aikey.
-                .requires(source -> source.hasPermission(2))
+                .requires(Commands.hasPermission(Commands.LEVEL_GAMEMASTERS))
                 .then(literal("groq").executes(ctx -> useGroq(ctx.getSource())))
                 .then(literal("openai").executes(ctx -> useOpenAi(ctx.getSource())))
                 .then(literal("status").executes(ctx -> status(ctx.getSource()))));
