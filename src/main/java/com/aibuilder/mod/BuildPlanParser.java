@@ -9,6 +9,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.CommandBlock;
 import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
@@ -60,8 +61,16 @@ public final class BuildPlanParser {
     public record ChestPlacement(int x, int y, int z, Direction facing, List<ChestItem> items) {
     }
 
-    /** A command block to place, in coordinates relative to the player, with its stored command. */
-    public record CommandBlockPlacement(int x, int y, int z, Direction facing, String command) {
+    /**
+     * A command block to place, in coordinates relative to the player, with its stored command.
+     * type is "impulse" (fires once per redstone pulse — the one a button/lever triggers),
+     * "chain" (auto-fires right after the block behind it in the chain succeeds — used for the
+     * 2nd+ command of a multi-item kit) or "repeat" (fires every tick while powered). auto mirrors
+     * the "Always Active" toggle (true) vs "Needs Redstone" (false) — a chain block is always auto=true
+     * so it doesn't need its own redstone, only the impulse block at the start of the chain does.
+     */
+    public record CommandBlockPlacement(int x, int y, int z, Direction facing, String type, boolean auto,
+                                         String command) {
     }
 
     /**
@@ -194,16 +203,38 @@ public final class BuildPlanParser {
                         continue;
                     }
 
-                    String command = obj.has("command") ? obj.get("command").getAsString().trim() : "";
-                    if (command.startsWith("/")) {
-                        command = command.substring(1);
-                    }
-                    if (command.isEmpty()) {
+                    String rawCommand = obj.has("command") ? obj.get("command").getAsString() : "";
+                    String type = normalizeCommandBlockType(getString(obj, "type"));
+                    boolean auto = obj.has("auto") && obj.get("auto").getAsBoolean();
+                    Direction facing = parseDirection(getString(obj, "facing"));
+
+                    // A single vanilla command block can only ever store and run ONE
+                    // command. The AI is told this, but - especially for a multi-item
+                    // "kit" - sometimes still writes several give commands into one
+                    // "command" string anyway (joined by a literal newline or a
+                    // semicolon), which then errors out in-game instead of working.
+                    // Defensively split that back apart here and auto-build the real
+                    // fix for it: a physical chain of command blocks (first = impulse,
+                    // triggered by the button; the rest = chain + always-active, so
+                    // they fire automatically right after it), one command each.
+                    List<String> parts = splitIntoSingleCommands(rawCommand);
+                    if (parts.isEmpty()) {
                         continue;
                     }
 
-                    Direction facing = parseDirection(getString(obj, "facing"));
-                    commandBlocks.add(new CommandBlockPlacement(x, y, z, facing, command));
+                    if (parts.size() == 1) {
+                        commandBlocks.add(new CommandBlockPlacement(x, y, z, facing, type, auto, parts.get(0)));
+                    } else {
+                        Direction chainDir = facing != null ? facing : Direction.EAST;
+                        for (int i = 0; i < parts.size(); i++) {
+                            int px = x + chainDir.getStepX() * i;
+                            int py = y + chainDir.getStepY() * i;
+                            int pz = z + chainDir.getStepZ() * i;
+                            String t = i == 0 ? "impulse" : "chain";
+                            boolean a = i != 0;
+                            commandBlocks.add(new CommandBlockPlacement(px, py, pz, chainDir, t, a, parts.get(i)));
+                        }
+                    }
                 } catch (Exception e) {
                     // Malformed command block entry; skip it and keep going.
                 }
@@ -289,6 +320,64 @@ public final class BuildPlanParser {
             return state.setValue(HorizontalDirectionalBlock.FACING, facing);
         }
         return state;
+    }
+
+    /**
+     * Command blocks (impulse/chain/repeating) declare their own separate
+     * FACING property (CommandBlock.FACING, a 6-way property) rather than
+     * reusing HorizontalDirectionalBlock's 4-way one, so they need their own
+     * setter. This direction is what makes a "chain" command block actually
+     * propagate execution to the next block in line.
+     */
+    public static BlockState withCommandFacing(BlockState state, Direction facing) {
+        if (facing != null && state.hasProperty(CommandBlock.FACING)) {
+            return state.setValue(CommandBlock.FACING, facing);
+        }
+        return state;
+    }
+
+    /** The real block id for a command block "type" as the AI may specify it. */
+    public static String commandBlockId(String type) {
+        return switch (type) {
+            case "chain" -> "minecraft:chain_command_block";
+            case "repeat" -> "minecraft:repeating_command_block";
+            default -> "minecraft:command_block";
+        };
+    }
+
+    private static String normalizeCommandBlockType(String type) {
+        if (type == null) {
+            return "impulse";
+        }
+        return switch (type.trim().toLowerCase(Locale.ROOT)) {
+            case "chain" -> "chain";
+            case "repeat", "repeating" -> "repeat";
+            default -> "impulse";
+        };
+    }
+
+    /**
+     * Splits one raw "command" string from the AI into one or more real
+     * single commands. Normally this is just one command (the common case);
+     * this only kicks in when the model ignored the "one command per entry"
+     * instruction and joined several together with a newline or semicolon.
+     * Each returned command has any leading "/" stripped and is never blank.
+     */
+    private static List<String> splitIntoSingleCommands(String rawCommand) {
+        List<String> parts = new ArrayList<>();
+        if (rawCommand == null) {
+            return parts;
+        }
+        for (String piece : rawCommand.split("[\\n;]+")) {
+            String trimmed = piece.trim();
+            if (trimmed.startsWith("/")) {
+                trimmed = trimmed.substring(1).trim();
+            }
+            if (!trimmed.isEmpty()) {
+                parts.add(trimmed);
+            }
+        }
+        return parts;
     }
 
     private static Direction parseDirection(String s) {

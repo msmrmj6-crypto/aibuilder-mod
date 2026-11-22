@@ -158,11 +158,14 @@ public final class AiBuildCommand {
     }
 
     /**
-     * Places every (impulse) command block the AI asked for and stores its
-     * command in it - e.g. a button wired to a command block that gives the
-     * player a kit. These only ever run for whoever is allowed to use
-     * /aibuild in the first place (operators), same as typing the command
-     * themselves would.
+     * Places every command block the AI asked for and stores its command in
+     * it - e.g. a button wired to a command block that gives the player a
+     * kit. A multi-item kit comes in as a real chain: the first block is an
+     * impulse one (needs redstone - the button/lever triggers it) and the
+     * rest are chain blocks set to "Always Active", so pressing the one
+     * button fires every command in the chain, each giving one item. These
+     * only ever run for whoever is allowed to use /aibuild in the first
+     * place (operators), same as typing the command themselves would.
      */
     private static void placeCommandBlocks(ServerLevel level, BlockPos origin,
                                             List<BuildPlanParser.CommandBlockPlacement> commandBlocks) {
@@ -170,18 +173,20 @@ public final class AiBuildCommand {
             return;
         }
 
-        BlockState baseState = BuildPlanParser.resolveBlock("minecraft:command_block", new ArrayList<>());
-        if (baseState == null) {
-            return;
-        }
-
         for (BuildPlanParser.CommandBlockPlacement cmd : commandBlocks) {
+            BlockState baseState = BuildPlanParser.resolveBlock(
+                    BuildPlanParser.commandBlockId(cmd.type()), new ArrayList<>());
+            if (baseState == null) {
+                continue;
+            }
+
             BlockPos pos = origin.offset(cmd.x(), cmd.y(), cmd.z());
-            BlockState state = BuildPlanParser.withFacing(baseState, cmd.facing());
+            BlockState state = BuildPlanParser.withCommandFacing(baseState, cmd.facing());
             level.setBlock(pos, state, 3);
 
             if (level.getBlockEntity(pos) instanceof CommandBlockEntity commandBlockEntity) {
                 commandBlockEntity.getCommandBlock().setCommand(cmd.command());
+                commandBlockEntity.setAutomatic(cmd.auto());
                 commandBlockEntity.setChanged();
             }
         }
