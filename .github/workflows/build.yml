@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -33,3 +35,17 @@ jobs:
           name: aibuilder-mod
           path: build/libs/*.jar
           if-no-files-found: error
+
+      # Actions artifacts (above) are only downloadable via a signed Azure Blob
+      # Storage redirect, which is unreachable from some sandboxed/offline
+      # environments. A GitHub Release asset is instead served directly from
+      # GitHub's own infrastructure, so it stays downloadable everywhere. Keep
+      # one rolling "latest-build" release updated on every push.
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view latest-build --repo "${{ github.repository }}" >/dev/null 2>&1 \
+            && gh release upload latest-build build/libs/*.jar --repo "${{ github.repository }}" --clobber \
+            || gh release create latest-build build/libs/*.jar --repo "${{ github.repository }}" \
+                 --title "Latest build" --notes "Automated build from commit ${{ github.sha }}"
