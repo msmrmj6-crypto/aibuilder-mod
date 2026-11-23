@@ -50,6 +50,8 @@ jobs:
           javap -p net/minecraft/world/entity/LivingEntity.class | grep -i "equip\|ItemSlot\|setItem"
           echo "===== Entity (position-related) ====="
           javap -p net/minecraft/world/entity/Entity.class | grep -i "setPos\|moveTo\|teleport"
+          echo "===== Entity (removal-related) ====="
+          javap -p net/minecraft/world/entity/Entity.class | grep -i "discard\|remove"
           echo "===== ServerLevel (entity-related) ====="
           javap -p net/minecraft/server/level/ServerLevel.class | grep -i "entity\|spawn"
           echo "===== BuiltInRegistries (entity type field) ====="
