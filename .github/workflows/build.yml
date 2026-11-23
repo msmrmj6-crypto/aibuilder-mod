@@ -26,6 +26,35 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # Temporary: ground-truth the real API for spawning an entity with
+      # equipment (for the upcoming /aievent command - geared-up mobs,
+      # boss fights, etc) before writing real code against guessed names.
+      - name: Debug - dump entity spawn/equipment API
+        run: |
+          ./gradlew compileJava --no-daemon --stacktrace || true
+          JAR=$(find ~/.gradle/caches -iname "*.jar" | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/entity/EntityType.class" && echo {}' | head -1)
+          echo "Found jar: $JAR"
+          mkdir -p /tmp/extracted
+          cd /tmp/extracted
+          unzip -o "$JAR" "net/minecraft/world/entity/EntityType.class"
+          unzip -o "$JAR" "net/minecraft/world/entity/LivingEntity.class"
+          unzip -o "$JAR" "net/minecraft/world/entity/EquipmentSlot.class"
+          unzip -o "$JAR" "net/minecraft/server/level/ServerLevel.class"
+          unzip -o "$JAR" "net/minecraft/core/registries/BuiltInRegistries.class"
+          unzip -o "$JAR" "net/minecraft/world/entity/Entity.class"
+          echo "===== EntityType ====="
+          javap -p net/minecraft/world/entity/EntityType.class
+          echo "===== EquipmentSlot ====="
+          javap -p net/minecraft/world/entity/EquipmentSlot.class
+          echo "===== LivingEntity (equipment-related) ====="
+          javap -p net/minecraft/world/entity/LivingEntity.class | grep -i "equip\|ItemSlot\|setItem"
+          echo "===== Entity (position-related) ====="
+          javap -p net/minecraft/world/entity/Entity.class | grep -i "setPos\|moveTo\|teleport"
+          echo "===== ServerLevel (entity-related) ====="
+          javap -p net/minecraft/server/level/ServerLevel.class | grep -i "entity\|spawn"
+          echo "===== BuiltInRegistries (entity type field) ====="
+          javap -p net/minecraft/core/registries/BuiltInRegistries.class | grep -i "entity"
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 
