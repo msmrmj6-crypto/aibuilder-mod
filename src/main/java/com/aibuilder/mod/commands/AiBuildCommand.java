@@ -1,6 +1,7 @@
 package com.aibuilder.mod.commands;
 
 import com.aibuilder.mod.AiBuilderMod;
+import com.aibuilder.mod.BuildExecutor;
 import com.aibuilder.mod.BuildPlanParser;
 import com.aibuilder.mod.BuildScheduler;
 import com.aibuilder.mod.ModConfig;
@@ -13,15 +14,8 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.Container;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.entity.CommandBlockEntity;
-import net.minecraft.world.level.block.state.BlockState;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -90,7 +84,8 @@ public final class AiBuildCommand {
                     BuildPlanParser.BuildPlan plan =
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
-                    if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()) {
+                    if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()
+                            && plan.mobs().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت بلوكات صالحة من رد الذكاء الاصطناعي. جرّب تصف الفكرة بشكل أوضح."), false);
@@ -101,8 +96,9 @@ public final class AiBuildCommand {
                             "[AI Builder] جاري البناء الآن (" + plan.blocks().size() + " بلوك)..."), false);
 
                     Runnable onComplete = () -> {
-                        placeChests(player.level(), origin, plan.chests());
-                        placeCommandBlocks(player.level(), origin, plan.commandBlocks());
+                        BuildExecutor.placeChests(player.level(), origin, plan.chests());
+                        BuildExecutor.placeCommandBlocks(player.level(), origin, plan.commandBlocks());
+                        BuildExecutor.spawnMobs(player.level(), origin, plan.mobs());
                         busyPlayers.remove(playerId);
                         if (player.isAlive()) {
                             player.sendSystemMessage(Component.literal("[AI Builder] خلص البناء! ✅"), false);
@@ -123,72 +119,5 @@ public final class AiBuildCommand {
                 }));
 
         return 1;
-    }
-
-    /**
-     * Places every chest the AI asked for and fills its inventory with the
-     * items it specified, one stack per slot in the order given.
-     */
-    private static void placeChests(ServerLevel level, BlockPos origin, List<BuildPlanParser.ChestPlacement> chests) {
-        if (chests.isEmpty()) {
-            return;
-        }
-
-        BlockState baseChestState = BuildPlanParser.resolveBlock("minecraft:chest", new ArrayList<>());
-        if (baseChestState == null) {
-            return;
-        }
-
-        for (BuildPlanParser.ChestPlacement chest : chests) {
-            BlockPos pos = origin.offset(chest.x(), chest.y(), chest.z());
-            BlockState chestState = BuildPlanParser.withFacing(baseChestState, chest.facing());
-            level.setBlock(pos, chestState, 3);
-
-            if (level.getBlockEntity(pos) instanceof Container container) {
-                int slot = 0;
-                for (BuildPlanParser.ChestItem item : chest.items()) {
-                    if (slot >= container.getContainerSize()) {
-                        break;
-                    }
-                    container.setItem(slot, new ItemStack(item.item(), item.count()));
-                    slot++;
-                }
-            }
-        }
-    }
-
-    /**
-     * Places every command block the AI asked for and stores its command in
-     * it - e.g. a button wired to a command block that gives the player a
-     * kit. A multi-item kit comes in as a real chain: the first block is an
-     * impulse one (needs redstone - the button/lever triggers it) and the
-     * rest are chain blocks set to "Always Active", so pressing the one
-     * button fires every command in the chain, each giving one item. These
-     * only ever run for whoever is allowed to use /aibuild in the first
-     * place (operators), same as typing the command themselves would.
-     */
-    private static void placeCommandBlocks(ServerLevel level, BlockPos origin,
-                                            List<BuildPlanParser.CommandBlockPlacement> commandBlocks) {
-        if (commandBlocks.isEmpty()) {
-            return;
-        }
-
-        for (BuildPlanParser.CommandBlockPlacement cmd : commandBlocks) {
-            BlockState baseState = BuildPlanParser.resolveBlock(
-                    BuildPlanParser.commandBlockId(cmd.type()), new ArrayList<>());
-            if (baseState == null) {
-                continue;
-            }
-
-            BlockPos pos = origin.offset(cmd.x(), cmd.y(), cmd.z());
-            BlockState state = BuildPlanParser.withCommandFacing(baseState, cmd.facing());
-            level.setBlock(pos, state, 3);
-
-            if (level.getBlockEntity(pos) instanceof CommandBlockEntity commandBlockEntity) {
-                commandBlockEntity.getCommandBlock().setCommand(cmd.command());
-                commandBlockEntity.setAutomatic(cmd.auto());
-                commandBlockEntity.setChanged();
-            }
-        }
     }
 }

@@ -7,6 +7,8 @@ import com.google.gson.JsonParser;
 import net.minecraft.core.Direction;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.CommandBlock;
@@ -14,8 +16,10 @@ import net.minecraft.world.level.block.HorizontalDirectionalBlock;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Turns the raw text the AI replied with into a validated, bounded list of
@@ -34,6 +38,7 @@ import java.util.Locale;
  *  - "chests": places a chest and fills it with specific items.
  *  - "commandBlocks": places an (impulse) command block with a stored
  *    command, e.g. for a button that gives the player a kit.
+ *  - "mobs": spawns a mob, optionally geared up with real equipment.
  *
  * Any "fills"/"blocks"/"chests"/"commandBlocks" entry may also set an
  * optional "facing"
@@ -74,25 +79,35 @@ public final class BuildPlanParser {
     }
 
     /**
+     * A mob to spawn, in coordinates relative to the player, optionally geared
+     * up with real equipment (any slot not present in the map is left empty).
+     * count spawns that many copies at the same position (a small group).
+     */
+    public record MobSpawn(int x, int y, int z, EntityType<?> type, int count, Map<EquipmentSlot, Item> equipment) {
+    }
+
+    /**
      * blocks = what we will place. chests = chests to place and fill.
      * commandBlocks = command blocks to place with their stored command.
+     * mobs = mobs to spawn, optionally geared up.
      * skipped = block/item ids the AI gave that we could not resolve.
      */
     public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests,
-                             List<CommandBlockPlacement> commandBlocks, List<String> skipped) {
+                             List<CommandBlockPlacement> commandBlocks, List<MobSpawn> mobs, List<String> skipped) {
     }
 
     public static BuildPlan parse(String rawJson, int maxDimension, int maxBlocks) {
         List<PlacedBlock> result = new ArrayList<>();
         List<ChestPlacement> chests = new ArrayList<>();
         List<CommandBlockPlacement> commandBlocks = new ArrayList<>();
+        List<MobSpawn> mobs = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
         JsonObject root;
         try {
             root = JsonParser.parseString(extractJson(rawJson)).getAsJsonObject();
         } catch (Exception e) {
-            return new BuildPlan(result, chests, commandBlocks, skipped);
+            return new BuildPlan(result, chests, commandBlocks, mobs, skipped);
         }
 
         int half = Math.max(1, maxDimension / 2);
@@ -241,7 +256,71 @@ public final class BuildPlanParser {
             }
         }
 
-        return new BuildPlan(result, chests, commandBlocks, skipped);
+        if (root.has("mobs") && root.get("mobs").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("mobs")) {
+                try {
+                    JsonObject obj = el.getAsJsonObject();
+                    int x = obj.get("x").getAsInt();
+                    int y = obj.get("y").getAsInt();
+                    int z = obj.get("z").getAsInt();
+
+                    if (x < -half || x > half || z < -half || z > half || y < 0 || y > maxDimension) {
+                        continue;
+                    }
+
+                    String entityId = obj.has("entity") ? obj.get("entity").getAsString() : "";
+                    EntityType<?> type = resolveEntityType(entityId, skipped);
+                    if (type == null) {
+                        continue;
+                    }
+
+                    int count = obj.has("count") ? obj.get("count").getAsInt() : 1;
+                    count = Math.max(1, Math.min(count, 10));
+
+                    Map<EquipmentSlot, Item> equipment = new LinkedHashMap<>();
+                    addEquipment(obj, "mainhand", EquipmentSlot.MAINHAND, equipment, skipped);
+                    addEquipment(obj, "offhand", EquipmentSlot.OFFHAND, equipment, skipped);
+                    addEquipment(obj, "helmet", EquipmentSlot.HEAD, equipment, skipped);
+                    addEquipment(obj, "chestplate", EquipmentSlot.CHEST, equipment, skipped);
+                    addEquipment(obj, "leggings", EquipmentSlot.LEGS, equipment, skipped);
+                    addEquipment(obj, "boots", EquipmentSlot.FEET, equipment, skipped);
+
+                    mobs.add(new MobSpawn(x, y, z, type, count, equipment));
+                } catch (Exception e) {
+                    // Malformed mob entry; skip it and keep going.
+                }
+            }
+        }
+
+        return new BuildPlan(result, chests, commandBlocks, mobs, skipped);
+    }
+
+    private static void addEquipment(JsonObject obj, String field, EquipmentSlot slot,
+                                      Map<EquipmentSlot, Item> equipment, List<String> skipped) {
+        String itemId = getString(obj, field);
+        if (itemId == null || itemId.isBlank()) {
+            return;
+        }
+        Item item = resolveItem(itemId, skipped);
+        if (item != null) {
+            equipment.put(slot, item);
+        }
+    }
+
+    private static EntityType<?> resolveEntityType(String entityId, List<String> skipped) {
+        Identifier id = Identifier.tryParse(entityId.trim());
+        if (id == null) {
+            skipped.add(entityId);
+            return null;
+        }
+
+        EntityType<?> type = BuiltInRegistries.ENTITY_TYPE.getOptional(id).orElse(null);
+        if (type == null) {
+            skipped.add(entityId);
+            return null;
+        }
+
+        return type;
     }
 
     /**

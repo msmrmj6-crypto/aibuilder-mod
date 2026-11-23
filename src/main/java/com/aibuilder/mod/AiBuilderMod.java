@@ -1,6 +1,7 @@
 package com.aibuilder.mod;
 
 import com.aibuilder.mod.commands.AiBuildCommand;
+import com.aibuilder.mod.commands.AiEventCommand;
 import com.aibuilder.mod.commands.AiKeyCommand;
 import com.aibuilder.mod.commands.AiProviderCommand;
 import net.fabricmc.api.ModInitializer;
@@ -22,11 +23,13 @@ public class AiBuilderMod implements ModInitializer {
         ModConfig.load();
         PlayerKeyStore.load();
         BuildScheduler.init();
+        EventScheduler.init();
 
         CommandRegistrationCallback.EVENT.register((dispatcher, buildContext, selection) -> {
             AiKeyCommand.register(dispatcher);
             AiBuildCommand.register(dispatcher);
             AiProviderCommand.register(dispatcher);
+            AiEventCommand.register(dispatcher);
         });
 
         // As soon as a player joins, if they have no key saved yet, ask for one -
