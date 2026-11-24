@@ -51,10 +51,26 @@ jobs:
 
           echo "=== ServerLevel (weather) ==="
           javap -p net/minecraft/server/level/ServerLevel.class 2>&1 | grep -i "weather"
-          echo "=== Level (day time) ==="
-          javap -p net/minecraft/world/level/Level.class 2>&1 | grep -i "daytime"
+          echo "=== ServerLevel (time, full) ==="
+          javap -p net/minecraft/server/level/ServerLevel.class 2>&1 | grep -i "time"
+          echo "=== Level (time, full) ==="
+          javap -p net/minecraft/world/level/Level.class 2>&1 | grep -i "time"
           echo "=== Commands (perform/execute) ==="
           javap -p net/minecraft/commands/Commands.class 2>&1 | grep -i "perform\|execute"
+
+          echo "=== search jar for LevelData/WritableLevelData classes ==="
+          unzip -l "$JAR" | grep -iE "WritableLevelData\.class$|ServerLevelData\.class$|/LevelData\.class$"
+          mapfile -t LDTARGETS < <(unzip -l "$JAR" | awk '{print $4}' | grep -iE "WritableLevelData\.class$|ServerLevelData\.class$|/LevelData\.class$")
+          for t in "${LDTARGETS[@]}"; do
+            unzip -o -q "$JAR" "$t"
+          done
+          echo "=== getLevelData on Level/ServerLevel ==="
+          javap -p net/minecraft/world/level/Level.class 2>&1 | grep -i "leveldata"
+          javap -p net/minecraft/server/level/ServerLevel.class 2>&1 | grep -i "leveldata"
+          for f in $(find . -iname "*LevelData*.class"); do
+            echo "----- $f -----"
+            javap -p "$f" 2>&1 | grep -i "time"
+          done
         continue-on-error: true
 
       - name: Build with Gradle
