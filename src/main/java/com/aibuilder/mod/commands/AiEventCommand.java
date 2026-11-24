@@ -107,7 +107,8 @@ public final class AiEventCommand {
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
                     if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()
-                            && plan.mobs().isEmpty() && plan.itemRain() == null && plan.playerActions().isEmpty()) {
+                            && plan.mobs().isEmpty() && plan.itemRain() == null && plan.playerActions().isEmpty()
+                            && plan.weather() == null && plan.time() == null && plan.immediateCommands().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت نتيجة صالحة من رد الذكاء الاصطناعي. جرّب تصف الحدث بشكل أوضح."), false);
@@ -142,6 +143,9 @@ public final class AiEventCommand {
                         List<Entity> spawned = BuildExecutor.spawnMobs(level, origin, plan.mobs());
                         List<Runnable> playerReverts =
                                 BuildExecutor.applyPlayerActions(server, level, plan.playerActions(), snapshot);
+                        playerReverts.add(BuildExecutor.applyWeather(level, plan.weather()));
+                        playerReverts.add(BuildExecutor.applyTime(level, plan.time()));
+                        BuildExecutor.runImmediateCommands(server, source, plan.immediateCommands());
 
                         if (plan.itemRain() != null) {
                             int rainSeconds = durationSeconds > 0 ? durationSeconds : 15;

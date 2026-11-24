@@ -110,11 +110,16 @@ public final class BuildPlanParser {
      * mobs = mobs to spawn, optionally geared up.
      * itemRain = a continuous rain of items (null if none was asked for).
      * playerActions = things to do to specific named players.
+     * weather = "clear"/"rain"/"thunder" (null if not asked for).
+     * time = target day-time in ticks (null if not asked for).
+     * immediateCommands = raw vanilla command strings to run once, right
+     * away, with full operator permission (null-filtered, already capped).
      * skipped = block/item ids the AI gave that we could not resolve.
      */
     public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests,
                              List<CommandBlockPlacement> commandBlocks, List<MobSpawn> mobs,
-                             ItemRainSpec itemRain, List<PlayerAction> playerActions, List<String> skipped) {
+                             ItemRainSpec itemRain, List<PlayerAction> playerActions,
+                             String weather, Long time, List<String> immediateCommands, List<String> skipped) {
     }
 
     public static BuildPlan parse(String rawJson, int maxDimension, int maxBlocks) {
@@ -123,13 +128,15 @@ public final class BuildPlanParser {
         List<CommandBlockPlacement> commandBlocks = new ArrayList<>();
         List<MobSpawn> mobs = new ArrayList<>();
         List<PlayerAction> playerActions = new ArrayList<>();
+        List<String> immediateCommands = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
         JsonObject root;
         try {
             root = JsonParser.parseString(extractJson(rawJson)).getAsJsonObject();
         } catch (Exception e) {
-            return new BuildPlan(result, chests, commandBlocks, mobs, null, playerActions, skipped);
+            return new BuildPlan(result, chests, commandBlocks, mobs, null, playerActions, null, null,
+                    immediateCommands, skipped);
         }
 
         int half = Math.max(1, maxDimension / 2);
@@ -358,7 +365,46 @@ public final class BuildPlanParser {
             }
         }
 
-        return new BuildPlan(result, chests, commandBlocks, mobs, itemRain, playerActions, skipped);
+        String weather = null;
+        if (root.has("weather") && root.get("weather").isJsonPrimitive()) {
+            String w = root.get("weather").getAsString();
+            if ("clear".equals(w) || "rain".equals(w) || "thunder".equals(w)) {
+                weather = w;
+            }
+        }
+
+        Long time = null;
+        if (root.has("time") && root.get("time").isJsonPrimitive()) {
+            try {
+                String t = root.get("time").getAsString();
+                time = switch (t) {
+                    case "day" -> 1000L;
+                    case "noon" -> 6000L;
+                    case "night" -> 13000L;
+                    case "midnight" -> 18000L;
+                    default -> null;
+                };
+            } catch (Exception e) {
+                // Not a recognized string keyword; leave time as null.
+            }
+        }
+
+        if (root.has("immediateCommands") && root.get("immediateCommands").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("immediateCommands")) {
+                if (immediateCommands.size() >= 10) break;
+                try {
+                    String cmd = el.getAsString().trim();
+                    if (!cmd.isBlank()) {
+                        immediateCommands.add(cmd);
+                    }
+                } catch (Exception e) {
+                    // Malformed entry; skip it and keep going.
+                }
+            }
+        }
+
+        return new BuildPlan(result, chests, commandBlocks, mobs, itemRain, playerActions,
+                weather, time, immediateCommands, skipped);
     }
 
     private static void addEquipment(JsonObject obj, String field, EquipmentSlot slot,

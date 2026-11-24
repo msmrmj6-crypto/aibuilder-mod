@@ -1,6 +1,7 @@
 package com.aibuilder.mod;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -268,5 +269,67 @@ public final class BuildExecutor {
             }
         }
         return positions;
+    }
+
+    /**
+     * Sets real server weather ("clear"/"rain"/"thunder") and returns a
+     * Runnable that puts it back exactly how it was. Unknown/null weather is
+     * a no-op (returns a do-nothing Runnable).
+     */
+    public static Runnable applyWeather(ServerLevel level, String weather) {
+        if (weather == null) {
+            return () -> {
+            };
+        }
+
+        boolean wasRaining = level.isRaining();
+        boolean wasThundering = level.isThundering();
+
+        switch (weather) {
+            case "rain" -> level.setWeatherParameters(0, 6000, true, false);
+            case "thunder" -> level.setWeatherParameters(0, 6000, true, true);
+            default -> level.setWeatherParameters(6000, 0, false, false);
+        }
+
+        return () -> {
+            if (wasRaining) {
+                level.setWeatherParameters(0, 6000, true, wasThundering);
+            } else {
+                level.setWeatherParameters(6000, 0, false, false);
+            }
+        };
+    }
+
+    /**
+     * Sets the world's day-time (in ticks) and returns a Runnable that puts
+     * it back to whatever it actually was before. Null time is a no-op.
+     */
+    public static Runnable applyTime(ServerLevel level, Long time) {
+        if (time == null) {
+            return () -> {
+            };
+        }
+
+        long originalTime = level.getDayTime();
+        level.setDayTime(time);
+        return () -> level.setDayTime(originalTime);
+    }
+
+    /**
+     * Runs each raw vanilla command string once, immediately, through the
+     * real command dispatcher with the event's own (operator) permission -
+     * e.g. a lightning strike, a particle burst, a title, a sound, a potion
+     * effect. One bad/malformed command is swallowed so it can't stop the
+     * rest of the event from happening.
+     */
+    public static void runImmediateCommands(MinecraftServer server, CommandSourceStack source,
+                                             List<String> commands) {
+        for (String command : commands) {
+            try {
+                server.getCommands().performPrefixedCommand(source, command);
+            } catch (Exception e) {
+                AiBuilderMod.LOGGER.warn("AI Builder event: immediate command failed: {}", command, e);
+            }
+        }
     }
 }
