@@ -33,36 +33,30 @@ jobs:
       # instead of guessing and burning a build cycle on a compile error.
       - name: Debug - dump new API surface
         run: |
+          set +e
           ./gradlew compileJava --no-daemon --stacktrace || true
-          JAR=$(find ~/.gradle/caches -iname "*.jar" 2>/dev/null | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/entity/item/ItemEntity.class" && echo {}' | head -1)
+          JAR=$(find ~/.gradle/caches -iname "*.jar" 2>/dev/null | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/entity/Entity.class" && echo {}' | head -1)
           echo "Using jar: $JAR"
           WORK=/tmp/mcdump
           rm -rf "$WORK" && mkdir -p "$WORK"
           cd "$WORK"
-          unzip -o -q "$JAR" \
-            "net/minecraft/world/entity/item/ItemEntity.class" \
-            "net/minecraft/server/players/PlayerList.class" \
-            "net/minecraft/world/entity/player/Player.class" \
-            "net/minecraft/world/entity/player/Player\$*.class" \
-            "net/minecraft/world/entity/Entity.class" \
-            "net/minecraft/world/entity/LivingEntity.class" \
-            "net/minecraft/world/entity/Mob.class" \
-            "net/minecraft/world/Container.class" \
-            "net/minecraft/world/entity/player/Inventory.class"
-          echo "=== Abilities-related classes found ==="
-          unzip -l "$JAR" | grep -i "Abilities"
-          echo "=== ItemEntity ==="
-          javap -p ItemEntity.class 2>&1 | head -40
-          echo "=== PlayerList (getPlayerByName) ==="
-          javap -p PlayerList.class 2>&1 | grep -i "byname\|getplayer"
-          echo "=== Player (getAbilities) ==="
-          javap -p Player.class 2>&1 | grep -i "abilities"
-          echo "=== Entity (kill/remove) ==="
-          javap -p Entity.class 2>&1 | grep -i "kill\|remove\|discard"
-          echo "=== LivingEntity (kill) ==="
-          javap -p LivingEntity.class 2>&1 | grep -i "kill"
-          echo "=== Inventory (Container methods) ==="
-          javap -p Inventory.class 2>&1 | head -60
+
+          echo "=== raw listing: ItemEntity / PlayerList / Abilities / Inventory ==="
+          unzip -l "$JAR" | grep -iE "ItemEntity\.class|players/PlayerList\.class|player/Abilities.*\.class|player/Inventory\.class"
+
+          mapfile -t TARGETS < <(unzip -l "$JAR" | awk '{print $4}' | grep -E "ItemEntity\.class$|players/PlayerList\.class$|entity/player/Player\.class$|entity/player/Abilities\.class$|entity/Entity\.class$|entity/LivingEntity\.class$|world/Container\.class$|entity/player/Inventory\.class$")
+          echo "=== matched targets ==="
+          printf '%s\n' "${TARGETS[@]}"
+
+          for t in "${TARGETS[@]}"; do
+            unzip -o -q "$JAR" "$t"
+          done
+
+          echo "=== dumping javap for every extracted class ==="
+          find . -name "*.class" | while read -r f; do
+            echo "----- $f -----"
+            javap -p "$f" 2>&1
+          done
         continue-on-error: true
 
       - name: Build with Gradle
