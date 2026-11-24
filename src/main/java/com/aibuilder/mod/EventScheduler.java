@@ -30,7 +30,25 @@ public final class EventScheduler {
         }
     }
 
+    // Runs task every intervalTicks, until totalTicksRemaining runs out -
+    // used for a continuous effect for the rest of a timed event (e.g. an
+    // item rain), rather than one thing happening once at the very end.
+    private static final class RepeatingEntry {
+        final int intervalTicks;
+        int sinceLast;
+        int totalTicksRemaining;
+        final Runnable task;
+
+        RepeatingEntry(int intervalTicks, int totalTicksRemaining, Runnable task) {
+            this.intervalTicks = Math.max(1, intervalTicks);
+            this.sinceLast = 0;
+            this.totalTicksRemaining = totalTicksRemaining;
+            this.task = task;
+        }
+    }
+
     private static final List<Entry> entries = new ArrayList<>();
+    private static final List<RepeatingEntry> repeatingEntries = new ArrayList<>();
     private static boolean registered = false;
 
     private EventScheduler() {
@@ -49,6 +67,17 @@ public final class EventScheduler {
         entries.add(new Entry(Math.max(1, delaySeconds * 20), task));
     }
 
+    /**
+     * Runs task every intervalTicks, for about totalSeconds (20 ticks per
+     * second) and then stops automatically. Used for an effect that should
+     * keep happening throughout a timed /aievent (e.g. a continuous item
+     * rain), independent of - and on top of - that event's one-time revert
+     * scheduled separately via {@link #scheduleSeconds}.
+     */
+    public static void scheduleRepeating(int intervalTicks, int totalSeconds, Runnable task) {
+        repeatingEntries.add(new RepeatingEntry(intervalTicks, Math.max(1, totalSeconds * 20), task));
+    }
+
     private static void tick() {
         Iterator<Entry> it = entries.iterator();
         while (it.hasNext()) {
@@ -56,6 +85,21 @@ public final class EventScheduler {
             entry.ticksRemaining--;
             if (entry.ticksRemaining <= 0) {
                 it.remove();
+                entry.task.run();
+            }
+        }
+
+        Iterator<RepeatingEntry> rit = repeatingEntries.iterator();
+        while (rit.hasNext()) {
+            RepeatingEntry entry = rit.next();
+            entry.totalTicksRemaining--;
+            if (entry.totalTicksRemaining <= 0) {
+                rit.remove();
+                continue;
+            }
+            entry.sinceLast++;
+            if (entry.sinceLast >= entry.intervalTicks) {
+                entry.sinceLast = 0;
                 entry.task.run();
             }
         }

@@ -87,13 +87,34 @@ public final class BuildPlanParser {
     }
 
     /**
+     * A continuous "rain" of random items from this list, falling from above
+     * somewhere within radius blocks of the event's origin. Only meaningful
+     * for the timed /aievent command - /aibuild ignores this field entirely.
+     */
+    public record ItemRainSpec(List<Item> items, int radius) {
+    }
+
+    /**
+     * Something to do to one specific, currently-online player, found by
+     * their exact in-game username. Only meaningful for /aievent - /aibuild
+     * ignores this field entirely. trap/fly/takeItems are reverted
+     * automatically when a timed event ends (same as everything else it
+     * placed); kill happens once, immediately, and is never "reverted".
+     */
+    public record PlayerAction(String playerName, boolean trap, boolean fly, boolean kill, boolean takeItems) {
+    }
+
+    /**
      * blocks = what we will place. chests = chests to place and fill.
      * commandBlocks = command blocks to place with their stored command.
      * mobs = mobs to spawn, optionally geared up.
+     * itemRain = a continuous rain of items (null if none was asked for).
+     * playerActions = things to do to specific named players.
      * skipped = block/item ids the AI gave that we could not resolve.
      */
     public record BuildPlan(List<PlacedBlock> blocks, List<ChestPlacement> chests,
-                             List<CommandBlockPlacement> commandBlocks, List<MobSpawn> mobs, List<String> skipped) {
+                             List<CommandBlockPlacement> commandBlocks, List<MobSpawn> mobs,
+                             ItemRainSpec itemRain, List<PlayerAction> playerActions, List<String> skipped) {
     }
 
     public static BuildPlan parse(String rawJson, int maxDimension, int maxBlocks) {
@@ -101,13 +122,14 @@ public final class BuildPlanParser {
         List<ChestPlacement> chests = new ArrayList<>();
         List<CommandBlockPlacement> commandBlocks = new ArrayList<>();
         List<MobSpawn> mobs = new ArrayList<>();
+        List<PlayerAction> playerActions = new ArrayList<>();
         List<String> skipped = new ArrayList<>();
 
         JsonObject root;
         try {
             root = JsonParser.parseString(extractJson(rawJson)).getAsJsonObject();
         } catch (Exception e) {
-            return new BuildPlan(result, chests, commandBlocks, mobs, skipped);
+            return new BuildPlan(result, chests, commandBlocks, mobs, null, playerActions, skipped);
         }
 
         int half = Math.max(1, maxDimension / 2);
@@ -292,7 +314,51 @@ public final class BuildPlanParser {
             }
         }
 
-        return new BuildPlan(result, chests, commandBlocks, mobs, skipped);
+        ItemRainSpec itemRain = null;
+        if (root.has("itemRain") && root.get("itemRain").isJsonObject()) {
+            try {
+                JsonObject obj = root.getAsJsonObject("itemRain");
+                List<Item> rainItems = new ArrayList<>();
+                if (obj.has("items") && obj.get("items").isJsonArray()) {
+                    for (JsonElement itemEl : obj.getAsJsonArray("items")) {
+                        Item item = resolveItem(itemEl.getAsString(), skipped);
+                        if (item != null) {
+                            rainItems.add(item);
+                        }
+                    }
+                }
+                if (!rainItems.isEmpty()) {
+                    int radius = obj.has("radius") ? obj.get("radius").getAsInt() : Math.min(10, half);
+                    radius = Math.max(3, Math.min(radius, half));
+                    itemRain = new ItemRainSpec(rainItems, radius);
+                }
+            } catch (Exception e) {
+                // Malformed itemRain object; just skip the feature.
+            }
+        }
+
+        if (root.has("playerActions") && root.get("playerActions").isJsonArray()) {
+            for (JsonElement el : root.getAsJsonArray("playerActions")) {
+                try {
+                    JsonObject obj = el.getAsJsonObject();
+                    String playerName = getString(obj, "player");
+                    if (playerName == null || playerName.isBlank()) {
+                        continue;
+                    }
+                    boolean trap = obj.has("trap") && obj.get("trap").getAsBoolean();
+                    boolean fly = obj.has("fly") && obj.get("fly").getAsBoolean();
+                    boolean kill = obj.has("kill") && obj.get("kill").getAsBoolean();
+                    boolean takeItems = obj.has("takeItems") && obj.get("takeItems").getAsBoolean();
+                    if (trap || fly || kill || takeItems) {
+                        playerActions.add(new PlayerAction(playerName.trim(), trap, fly, kill, takeItems));
+                    }
+                } catch (Exception e) {
+                    // Malformed playerActions entry; skip it and keep going.
+                }
+            }
+        }
+
+        return new BuildPlan(result, chests, commandBlocks, mobs, itemRain, playerActions, skipped);
     }
 
     private static void addEquipment(JsonObject obj, String field, EquipmentSlot slot,

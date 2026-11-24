@@ -85,7 +85,7 @@ public final class AiBuildCommand {
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
                     if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()
-                            && plan.mobs().isEmpty()) {
+                            && plan.mobs().isEmpty() && plan.itemRain() == null && plan.playerActions().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت بلوكات صالحة من رد الذكاء الاصطناعي. جرّب تصف الفكرة بشكل أوضح."), false);

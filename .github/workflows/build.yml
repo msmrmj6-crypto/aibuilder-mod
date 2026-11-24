@@ -26,39 +26,6 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # TEMPORARY - removed before the feature commit lands. Compiles just
-      # enough to pull Minecraft's real remapped jar into the Gradle cache,
-      # then dumps the real API (via javap) for classes/methods we're about
-      # to use for the first time, so we write against the real signatures
-      # instead of guessing and burning a build cycle on a compile error.
-      - name: Debug - dump new API surface
-        run: |
-          set +e
-          ./gradlew compileJava --no-daemon --stacktrace || true
-          JAR=$(find ~/.gradle/caches -iname "*.jar" 2>/dev/null | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/entity/Entity.class" && echo {}' | head -1)
-          echo "Using jar: $JAR"
-          WORK=/tmp/mcdump
-          rm -rf "$WORK" && mkdir -p "$WORK"
-          cd "$WORK"
-
-          echo "=== raw listing: ItemEntity / PlayerList / Abilities / Inventory ==="
-          unzip -l "$JAR" | grep -iE "ItemEntity\.class|players/PlayerList\.class|player/Abilities.*\.class|player/Inventory\.class"
-
-          mapfile -t TARGETS < <(unzip -l "$JAR" | awk '{print $4}' | grep -E "ItemEntity\.class$|players/PlayerList\.class$|entity/player/Player\.class$|entity/player/Abilities\.class$|entity/Entity\.class$|entity/LivingEntity\.class$|world/Container\.class$|entity/player/Inventory\.class$")
-          echo "=== matched targets ==="
-          printf '%s\n' "${TARGETS[@]}"
-
-          for t in "${TARGETS[@]}"; do
-            unzip -o -q "$JAR" "$t"
-          done
-
-          echo "=== dumping javap for every extracted class ==="
-          find . -name "*.class" | while read -r f; do
-            echo "----- $f -----"
-            javap -p "$f" 2>&1
-          done
-        continue-on-error: true
-
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 

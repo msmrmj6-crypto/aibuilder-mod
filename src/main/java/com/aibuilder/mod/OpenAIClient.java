@@ -66,14 +66,16 @@ public final class OpenAIClient {
                 The player is currently facing %s. Build the whole structure in the direction the player is facing, so it never overlaps the player, and put the entrance/front side of the structure on the side closest to the player.
                 Keep every coordinate within x in [-%d, %d], z in [-%d, %d], and y in [0, %d].
 
-                Use up to six arrays together to describe the build:
+                Use up to eight arrays/objects together to describe the build:
                 {
                   "fills": [{"x1":int,"y1":int,"z1":int,"x2":int,"y2":int,"z2":int,"block":"minecraft:<id>"}],
                   "hollowBoxes": [{"x1":int,"y1":int,"z1":int,"x2":int,"y2":int,"z2":int,"block":"minecraft:<id>"}],
                   "blocks": [{"x":int,"y":int,"z":int,"block":"minecraft:<id>"}],
                   "chests": [{"x":int,"y":int,"z":int,"items":[{"item":"minecraft:<id>","count":int}]}],
                   "commandBlocks": [{"x":int,"y":int,"z":int,"command":"give @p minecraft:<id> 1","type":"impulse"|"chain","auto":bool}],
-                  "mobs": [{"x":int,"y":int,"z":int,"entity":"minecraft:<id>","count":int,"mainhand":"minecraft:<id>","offhand":"minecraft:<id>","helmet":"minecraft:<id>","chestplate":"minecraft:<id>","leggings":"minecraft:<id>","boots":"minecraft:<id>"}]
+                  "mobs": [{"x":int,"y":int,"z":int,"entity":"minecraft:<id>","count":int,"mainhand":"minecraft:<id>","offhand":"minecraft:<id>","helmet":"minecraft:<id>","chestplate":"minecraft:<id>","leggings":"minecraft:<id>","boots":"minecraft:<id>"}],
+                  "itemRain": {"items":["minecraft:<id>", "..."], "radius":int},
+                  "playerActions": [{"player":"ExactUsername","trap":bool,"fly":bool,"kill":bool,"takeItems":bool}]
                 }
                 - "fills": a solid rectangular box of one block type (both corners included). Use for floors, roof slabs, roof layers, and (with "facing") a whole row of oriented stairs for a real sloped roof.
                 - "hollowBoxes": a rectangular box whose outer shell only (floor + ceiling + all 4 walls) is solid; the interior stays empty. This is the fastest and most reliable way to build a straight-walled room or building body - always prefer it over listing wall blocks one by one.
@@ -81,6 +83,13 @@ public final class OpenAIClient {
                 - "chests": places a "minecraft:chest" at that position and fills it with the given items, one per slot, in order (a chest has 27 slots - list at most 27). ALWAYS include this whenever the request mentions a chest/container holding something, or any specific item (a sword, a door, food, tools, anything) that should be stored/placed somewhere rather than built into the structure - never skip or forget this when it was asked for. "count" is optional (defaults to 1, max 64). Item ids use the same "minecraft:" namespace as blocks, but are the ITEM form (e.g. "minecraft:diamond_sword", "minecraft:oak_door").
                 - "commandBlocks": each entry stores EXACTLY ONE vanilla command (no leading "/") in ONE command block. A command block can only ever run a single command - NEVER write two commands into one "command" string, and NEVER join several with a newline or a semicolon, that breaks in-game instead of working. For a kit of SEVERAL items, use one commandBlocks entry PER item instead, built as a real chain so one button fires all of them: give every entry the SAME "facing", place each next entry exactly one block further in that same "facing" direction, leave "type" unset (defaults to "impulse" - the one the button actually powers) on the FIRST entry only, and set "type":"chain","auto":true on every entry after the first (an always-active chain block - it fires automatically right after the one behind it, no redstone of its own needed). Always also place a real button or lever (via "blocks", e.g. "minecraft:oak_button") next to/on top of the FIRST (impulse) entry only - a command block alone does nothing without redstone power, and only the impulse one needs it.
                 - "mobs": spawns a real living mob at that position, optionally geared up with real equipment in "mainhand"/"offhand"/"helmet"/"chestplate"/"leggings"/"boots" (all optional - include only the slots you actually want filled). "count" (default 1, max 10) spawns that many copies at the same spot, e.g. a small group of guards. Use this for boss fights, guarded rooms/dungeons, parkour/puzzle enemies, or anything that asked for a monster/mob/guard/boss - this is the reliable way to get an equipped mob, so prefer it over trying to "summon" one with hand-written equipment NBT in a commandBlocks entry. Entity ids use the "minecraft:" namespace too (e.g. "minecraft:zombie", "minecraft:skeleton", "minecraft:piglin_brute", "minecraft:vindicator").
+                - "itemRain" and "playerActions" are ADVANCED, admin-event-only features (a timed "event", not a normal build) - only include either of them when the request actually asks for something like this; leave both out entirely for an ordinary build/house/farm/redstone request.
+                  - "itemRain": a continuous rain of random items from the "items" list, falling from the sky somewhere within "radius" blocks (default ~10) of the player, for as long as the event runs. Use this whenever the request describes a "rain"/"shower" of items/weapons/loot - e.g. "رايني بالسيوف" (sword rain) -> items:["minecraft:iron_sword"]; if the request also names a second item ("سيوف وميس" - swords AND maces), include every named item in the list, not just one; it is never limited to weapons - any real item id can rain (food, blocks-as-items, potions, anything named).
+                  - "playerActions": things to do to one specific player who is (presumably) currently online, found by their exact in-game username as written in the request (copy the username literally, character for character - usually appears as a standalone word, often right after a word like "player"/"اللاعب" - never translate it or guess a different spelling). One entry per distinct player mentioned; if the same player gets several actions, combine them into ONE entry, not several. Flags (all optional, default false):
+                    - "trap": true encloses the player where they currently stand in a small see-through jail cell (reverts automatically at the end of a timed event).
+                    - "fly": true grants them flight for the event's duration (reverts automatically - flight is taken away again when the event ends).
+                    - "takeItems": true empties their entire inventory AND their worn equipment, holding it safely until the event ends, then gives it all back automatically - use this for "take away his stuff, then give it back" style requests.
+                    - "kill": true kills them once, immediately (NOT something that reverts - there is nothing to "undo" about a kill). Only set this when the request clearly and unambiguously asks to kill/eliminate that player.
 
                 ITEM ACCURACY: when the request names a specific item (a weapon, tool, armor piece, or anything else) use exactly that item's real id - never substitute a different, more "default" item out of habit (asked for a mace, give "minecraft:mace", NOT a sword). Common ids: sword/axe/pickaxe/shovel/hoe = "minecraft:<material>_<tool>" (material one of wooden/stone/golden/iron/diamond/netherite), bow = "minecraft:bow", crossbow = "minecraft:crossbow", trident = "minecraft:trident", mace = "minecraft:mace", shield = "minecraft:shield", totem = "minecraft:totem_of_undying", elytra = "minecraft:elytra". When a kit has several named items, every entry must give the one distinct item it actually corresponds to - never repeat the same single item across every entry unless duplicates were explicitly asked for.
 
@@ -144,6 +153,14 @@ public final class OpenAIClient {
                   ],
                   "blocks": [
                     {"x":1,"y":2,"z":1,"block":"minecraft:oak_button"}
+                  ]
+                }
+
+                EXAMPLE - admin event request: "rain swords and maces, trap the player Steve and make him fly, then after a bit kill him":
+                {
+                  "itemRain": {"items": ["minecraft:iron_sword", "minecraft:mace"], "radius": 10},
+                  "playerActions": [
+                    {"player": "Steve", "trap": true, "fly": true, "kill": true}
                   ]
                 }
 

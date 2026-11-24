@@ -107,7 +107,7 @@ public final class AiEventCommand {
                             BuildPlanParser.parse(rawJson, ModConfig.maxBuildDimension, ModConfig.maxBlocksPerBuild);
 
                     if (plan.blocks().isEmpty() && plan.chests().isEmpty() && plan.commandBlocks().isEmpty()
-                            && plan.mobs().isEmpty()) {
+                            && plan.mobs().isEmpty() && plan.itemRain() == null && plan.playerActions().isEmpty()) {
                         busyPlayers.remove(playerId);
                         player.sendSystemMessage(Component.literal(
                                 "[AI Builder] ما طلعت نتيجة صالحة من رد الذكاء الاصطناعي. جرّب تصف الحدث بشكل أوضح."), false);
@@ -119,17 +119,18 @@ public final class AiEventCommand {
                     // Snapshot every position this event is about to touch,
                     // BEFORE any placement happens, so it can be undone exactly -
                     // restoring whatever was really there before, not just air.
+                    // Always collected (even for a permanent event) - cheap, and
+                    // it's what lets a "trap" player-action add its cage blocks
+                    // into this exact same revert map further down.
                     Map<BlockPos, BlockState> snapshot = new LinkedHashMap<>();
-                    if (durationSeconds > 0) {
-                        for (BuildPlanParser.PlacedBlock b : plan.blocks()) {
-                            snapshot.computeIfAbsent(origin.offset(b.x(), b.y(), b.z()), level::getBlockState);
-                        }
-                        for (BuildPlanParser.ChestPlacement c : plan.chests()) {
-                            snapshot.computeIfAbsent(origin.offset(c.x(), c.y(), c.z()), level::getBlockState);
-                        }
-                        for (BuildPlanParser.CommandBlockPlacement cb : plan.commandBlocks()) {
-                            snapshot.computeIfAbsent(origin.offset(cb.x(), cb.y(), cb.z()), level::getBlockState);
-                        }
+                    for (BuildPlanParser.PlacedBlock b : plan.blocks()) {
+                        snapshot.computeIfAbsent(origin.offset(b.x(), b.y(), b.z()), level::getBlockState);
+                    }
+                    for (BuildPlanParser.ChestPlacement c : plan.chests()) {
+                        snapshot.computeIfAbsent(origin.offset(c.x(), c.y(), c.z()), level::getBlockState);
+                    }
+                    for (BuildPlanParser.CommandBlockPlacement cb : plan.commandBlocks()) {
+                        snapshot.computeIfAbsent(origin.offset(cb.x(), cb.y(), cb.z()), level::getBlockState);
                     }
 
                     player.sendSystemMessage(Component.literal(
@@ -139,6 +140,15 @@ public final class AiEventCommand {
                         BuildExecutor.placeChests(level, origin, plan.chests());
                         BuildExecutor.placeCommandBlocks(level, origin, plan.commandBlocks());
                         List<Entity> spawned = BuildExecutor.spawnMobs(level, origin, plan.mobs());
+                        List<Runnable> playerReverts =
+                                BuildExecutor.applyPlayerActions(server, level, plan.playerActions(), snapshot);
+
+                        if (plan.itemRain() != null) {
+                            int rainSeconds = durationSeconds > 0 ? durationSeconds : 15;
+                            EventScheduler.scheduleRepeating(4, rainSeconds,
+                                    () -> BuildExecutor.spawnItemRainWave(level, origin, plan.itemRain()));
+                        }
+
                         busyPlayers.remove(playerId);
 
                         if (player.isAlive()) {
@@ -160,6 +170,9 @@ public final class AiEventCommand {
                                     if (!entity.isRemoved()) {
                                         entity.discard();
                                     }
+                                }
+                                for (Runnable revert : playerReverts) {
+                                    revert.run();
                                 }
                                 if (player.isAlive()) {
                                     player.sendSystemMessage(Component.literal(
