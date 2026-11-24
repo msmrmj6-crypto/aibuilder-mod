@@ -1,6 +1,7 @@
 package com.aibuilder.mod;
 
 import com.aibuilder.mod.commands.AiBuildCommand;
+import com.aibuilder.mod.commands.AiEventCancelCommand;
 import com.aibuilder.mod.commands.AiEventCommand;
 import com.aibuilder.mod.commands.AiKeyCommand;
 import com.aibuilder.mod.commands.AiProviderCommand;
@@ -30,6 +31,7 @@ public class AiBuilderMod implements ModInitializer {
             AiBuildCommand.register(dispatcher);
             AiProviderCommand.register(dispatcher);
             AiEventCommand.register(dispatcher);
+            AiEventCancelCommand.register(dispatcher);
         });
 
         // As soon as a player joins, if they have no key saved yet, ask for one -

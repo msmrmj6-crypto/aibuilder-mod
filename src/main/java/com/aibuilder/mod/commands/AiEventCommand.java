@@ -145,7 +145,7 @@ public final class AiEventCommand {
 
                         if (plan.itemRain() != null) {
                             int rainSeconds = durationSeconds > 0 ? durationSeconds : 15;
-                            EventScheduler.scheduleRepeating(4, rainSeconds,
+                            EventScheduler.scheduleRepeating(playerId, 4, rainSeconds,
                                     () -> BuildExecutor.spawnItemRainWave(level, origin, plan.itemRain()));
                         }
 
@@ -162,7 +162,7 @@ public final class AiEventCommand {
                         }
 
                         if (durationSeconds > 0) {
-                            EventScheduler.scheduleSeconds(durationSeconds, () -> {
+                            EventScheduler.scheduleSeconds(playerId, durationSeconds, () -> {
                                 for (Map.Entry<BlockPos, BlockState> e : snapshot.entrySet()) {
                                     level.setBlock(e.getKey(), e.getValue(), 3);
                                 }
