@@ -26,6 +26,37 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # TEMPORARY - removed before the feature commit lands. Ground-truths
+      # the real Mojang-mapped API for weather control, day-time control, and
+      # running an arbitrary vanilla command string programmatically, before
+      # writing /aievent's new weather/time/immediateCommands support against
+      # them (same technique used for every previous API this mod needed).
+      - name: Debug - dump new API surface 2
+        run: |
+          set +e
+          ./gradlew compileJava --no-daemon --stacktrace || true
+          JAR=$(find ~/.gradle/caches -iname "*.jar" 2>/dev/null | xargs -I{} sh -c 'unzip -l "{}" 2>/dev/null | grep -q "net/minecraft/world/level/Level.class" && echo {}' | head -1)
+          echo "Using jar: $JAR"
+          WORK=/tmp/mcdump2
+          rm -rf "$WORK" && mkdir -p "$WORK"
+          cd "$WORK"
+
+          mapfile -t TARGETS < <(unzip -l "$JAR" | awk '{print $4}' | grep -E "server/level/ServerLevel\.class$|world/level/Level\.class$|commands/Commands\.class$")
+          echo "=== matched targets ==="
+          printf '%s\n' "${TARGETS[@]}"
+
+          for t in "${TARGETS[@]}"; do
+            unzip -o -q "$JAR" "$t"
+          done
+
+          echo "=== ServerLevel (weather) ==="
+          javap -p net/minecraft/server/level/ServerLevel.class 2>&1 | grep -i "weather"
+          echo "=== Level (day time) ==="
+          javap -p net/minecraft/world/level/Level.class 2>&1 | grep -i "daytime"
+          echo "=== Commands (perform/execute) ==="
+          javap -p net/minecraft/commands/Commands.class 2>&1 | grep -i "perform\|execute"
+        continue-on-error: true
+
       - name: Build with Gradle
         run: ./gradlew build --no-daemon --stacktrace
 
