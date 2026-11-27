@@ -170,20 +170,14 @@ public final class OpenAIClient {
                   ]
                 }
 
-                EXAMPLE - admin event request: "rain swords and maces, trap the player Steve and make him fly, then after a bit kill him":
-                {
-                  "itemRain": {"items": ["minecraft:iron_sword", "minecraft:mace"], "radius": 10},
-                  "playerActions": [
-                    {"player": "Steve", "trap": true, "fly": true, "kill": true}
-                  ]
-                }
-
-                EXAMPLE - admin event request: "make a stormy night boss fight with a lightning strike and scary music when it starts":
+                EXAMPLE - admin event request: "stormy night boss fight with a lightning strike, rain swords and maces, trap player Steve and make him fly, then kill him":
                 {
                   "weather": "thunder",
                   "time": "night",
                   "mobs": [{"x": 2, "y": 1, "z": 2, "entity": "minecraft:wither_skeleton", "count": 1, "mainhand": "minecraft:diamond_sword", "helmet": "minecraft:netherite_helmet"}],
-                  "immediateCommands": ["summon minecraft:lightning_bolt ~2 ~ ~2", "playsound minecraft:entity.wither.spawn master @a ~ ~ ~"]
+                  "immediateCommands": ["summon minecraft:lightning_bolt ~2 ~ ~2"],
+                  "itemRain": {"items": ["minecraft:iron_sword", "minecraft:mace"], "radius": 10},
+                  "playerActions": [{"player": "Steve", "trap": true, "fly": true, "kill": true}]
                 }
 
                 Only use real Minecraft Java Edition block/item ids with the "minecraft:" namespace. Output JSON only.
@@ -211,24 +205,85 @@ public final class OpenAIClient {
         responseFormat.addProperty("type", "json_object");
         body.add("response_format", responseFormat);
 
+        // Caps the reply length. Without this, some providers (Groq in
+        // particular) reserve/estimate the model's full possible completion
+        // size against the account's tokens-per-minute quota for every
+        // single request - on a small quota that alone can trigger
+        // "rate_limit_exceeded" even though hardly any tokens were actually
+        // used.
+        body.addProperty("max_tokens", ModConfig.requestMaxTokens);
+
+        String requestJson = GSON.toJson(body);
+
+        return sendWithRetries(apiKey, requestJson, 0);
+    }
+
+    // A transient failure (rate limit, a one-off bad/empty JSON generation, a
+    // momentary server hiccup) is common enough with smaller/faster models
+    // and tight provider quotas that it shouldn't surface as a hard failure
+    // on the first try. Retries a few times with a short, growing delay
+    // before giving up and surfacing the real error to the player.
+    private static final int MAX_ATTEMPTS = 3;
+
+    private static CompletableFuture<String> sendWithRetries(String apiKey, String requestJson, int attempt) {
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(ModConfig.apiBaseUrl))
                 .timeout(Duration.ofSeconds(90))
                 .header("Content-Type", "application/json")
                 .header("Authorization", "Bearer " + apiKey)
-                .POST(HttpRequest.BodyPublishers.ofString(GSON.toJson(body), StandardCharsets.UTF_8))
+                .POST(HttpRequest.BodyPublishers.ofString(requestJson, StandardCharsets.UTF_8))
                 .build();
 
         return HTTP.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(response -> {
+                .thenCompose(response -> {
+                    boolean retryable = response.statusCode() == 429 || response.statusCode() / 100 == 5
+                            || (response.statusCode() == 400 && response.body().contains("json_validate_failed"));
+
+                    if (retryable && attempt + 1 < MAX_ATTEMPTS) {
+                        long delaySeconds = retryDelaySeconds(response);
+                        AiBuilderMod.LOGGER.warn(
+                                "AI Builder: request failed ({}), retrying in {}s (attempt {}/{})",
+                                response.statusCode(), delaySeconds, attempt + 2, MAX_ATTEMPTS);
+                        return delayed(delaySeconds)
+                                .thenCompose(ignored -> sendWithRetries(apiKey, requestJson, attempt + 1));
+                    }
+
                     if (response.statusCode() / 100 != 2) {
                         throw new RuntimeException("OpenAI HTTP " + response.statusCode() + ": " + response.body());
                     }
+
                     JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
-                    return json.getAsJsonArray("choices")
+                    String content = json.getAsJsonArray("choices")
                             .get(0).getAsJsonObject()
                             .getAsJsonObject("message")
                             .get("content").getAsString();
+                    return CompletableFuture.completedFuture(content);
                 });
+    }
+
+    // Groq's 429 body includes a human-readable "Please try again in 36.12s"
+    // hint - use it when present (plus a little headroom) instead of a blind
+    // guess, falling back to a fixed, conservative delay otherwise.
+    private static long retryDelaySeconds(HttpResponse<String> response) {
+        if (response.statusCode() == 429) {
+            try {
+                java.util.regex.Matcher m =
+                        java.util.regex.Pattern.compile("try again in ([0-9.]+)s").matcher(response.body());
+                if (m.find()) {
+                    return (long) Math.ceil(Double.parseDouble(m.group(1))) + 1;
+                }
+            } catch (Exception ignored) {
+                // Fall through to the fixed default below.
+            }
+            return 10;
+        }
+        return 2;
+    }
+
+    private static CompletableFuture<Void> delayed(long seconds) {
+        CompletableFuture<Void> future = new CompletableFuture<>();
+        CompletableFuture.delayedExecutor(seconds, java.util.concurrent.TimeUnit.SECONDS)
+                .execute(() -> future.complete(null));
+        return future;
     }
 }

@@ -24,7 +24,7 @@ public final class ModConfig {
     // a server that is still on an older release's defaults (and upgrade it -
     // see the migration in load()) apart from one where an admin deliberately
     // chose a different number.
-    private static final int CURRENT_CONFIG_VERSION = 2;
+    private static final int CURRENT_CONFIG_VERSION = 3;
 
     // The defaults every earlier release of this mod shipped with (and saved
     // to disk on first run) — used only to recognize "never customized" below.
@@ -38,6 +38,13 @@ public final class ModConfig {
     public static int maxBuildDimension = 40;    // max width/depth/height of a build, in blocks
     public static int maxBlocksPerBuild = 8000;  // hard safety cap on blocks per /aibuild call
     public static int blocksPerTick = 300;       // how many blocks get placed per server tick
+    // Caps how many tokens the AI's reply is allowed to use. Without an
+    // explicit cap, some providers (Groq in particular) reserve/estimate the
+    // model's FULL possible completion length against the account's
+    // tokens-per-minute quota for every single request, which can exhaust a
+    // small quota (e.g. a free tier's 8000 TPM) in one call and cause
+    // "rate_limit_exceeded" even though barely any tokens were actually used.
+    public static int requestMaxTokens = 3000;
 
     private ModConfig() {
     }
@@ -49,6 +56,7 @@ public final class ModConfig {
         int maxBuildDimension;
         int maxBlocksPerBuild;
         int blocksPerTick;
+        int requestMaxTokens;
         int configVersion;
     }
 
@@ -66,6 +74,7 @@ public final class ModConfig {
                     if (data.maxBuildDimension > 0) maxBuildDimension = data.maxBuildDimension;
                     if (data.maxBlocksPerBuild > 0) maxBlocksPerBuild = data.maxBlocksPerBuild;
                     if (data.blocksPerTick > 0) blocksPerTick = data.blocksPerTick;
+                    if (data.requestMaxTokens > 0) requestMaxTokens = data.requestMaxTokens;
 
                     // One-time migration: this mod's players generally have no way
                     // to edit settings.json by hand, so a value still sitting at
@@ -103,6 +112,7 @@ public final class ModConfig {
             data.maxBuildDimension = maxBuildDimension;
             data.maxBlocksPerBuild = maxBlocksPerBuild;
             data.blocksPerTick = blocksPerTick;
+            data.requestMaxTokens = requestMaxTokens;
             data.configVersion = CURRENT_CONFIG_VERSION;
             Files.writeString(configFile, GSON.toJson(data), StandardCharsets.UTF_8);
         } catch (IOException e) {
